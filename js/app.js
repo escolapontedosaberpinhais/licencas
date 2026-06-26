@@ -358,6 +358,14 @@
             <input type="date" name="dataVencimento" value="${esc(l.dataVencimento || '')}">
             <span class="hint">Deixe em branco se a licença não vence.</span>
           </div>
+          ${!editando ? `<div class="field full">
+            <label>Modelo de checklist (opcional)</label>
+            <select name="modeloChecklist">
+              <option value="">Usar checklist padrão da categoria</option>
+              ${MODELOS_CHECKLIST.map((m) => `<option value="${m.id}">${esc(m.nome)} — ${m.itens.length} itens</option>`).join('')}
+            </select>
+            <span class="hint">Listas prontas de exigências. Você poderá editar os itens depois.</span>
+          </div>` : ''}
 
           <div class="field full"><div class="sub-label">Acesso ao portal, custo e referências</div></div>
           <div class="field">
@@ -427,6 +435,8 @@
       e.preventDefault();
       const fd = new FormData(form);
       const dados = Object.fromEntries(fd.entries());
+      const modeloId = dados.modeloChecklist;
+      delete dados.modeloChecklist; // campo auxiliar, não faz parte do registro
       const agora = new Date().toISOString();
 
       if (editando) {
@@ -434,17 +444,21 @@
         await DB.salvarLicenca(l);
         toast('Licença atualizada.', 'ok');
       } else {
+        const modelo = MODELOS_CHECKLIST.find((m) => m.id === modeloId);
+        const baseExig = modelo ? modelo.itens : (CATEGORIAS[dados.categoria].exigencias || []);
         const nova = {
           id: uid(),
           ...dados,
-          exigencias: (CATEGORIAS[dados.categoria].exigencias || []).map((t) => ({ texto: t, concluido: false })),
+          exigencias: baseExig.map((t) => ({ texto: t, concluido: false })),
           arquivos: [],
           historico: [{ data: agora, acao: 'Licença cadastrada' }],
           criadoEm: agora,
           atualizadoEm: agora,
         };
         await DB.salvarLicenca(nova);
-        toast('Licença cadastrada com a checklist padrão da categoria.', 'ok');
+        toast(modelo
+          ? `Licença cadastrada com o modelo "${modelo.nome}" (${modelo.itens.length} itens).`
+          : 'Licença cadastrada com a checklist padrão da categoria.', 'ok');
       }
       await carregar();
       fecharModal();
@@ -488,6 +502,14 @@
           <input type="text" id="nova-exig" class="" placeholder="Adicionar item à checklist..." style="padding:9px 11px;border:1px solid var(--borda);border-radius:8px;font-size:14px">
           <button class="btn btn-sm" id="add-exig">+ Adicionar</button>
         </div>
+        <div class="check-add" style="margin-top:6px">
+          <select id="sel-modelo" style="flex:1;padding:9px 11px;border:1px solid var(--borda);border-radius:8px;font-size:14px;background:#fff">
+            <option value="">Aplicar modelo de checklist pronto...</option>
+            ${MODELOS_CHECKLIST.map((m) => `<option value="${m.id}">${esc(m.nome)} — ${m.itens.length} itens</option>`).join('')}
+          </select>
+          <button class="btn btn-sm" id="aplicar-modelo" type="button">Aplicar</button>
+        </div>
+        <div id="modelo-doc" class="hint" style="margin-top:6px"></div>
       </div>
 
       <div class="detail-section">
@@ -552,6 +574,31 @@
     };
     document.getElementById('add-exig').addEventListener('click', addExig);
     document.getElementById('nova-exig').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addExig(); } });
+
+    // Aplicar modelo de checklist + link do documento oficial
+    const selModelo = document.getElementById('sel-modelo');
+    const modeloDoc = document.getElementById('modelo-doc');
+    if (selModelo) selModelo.addEventListener('change', () => {
+      const m = MODELOS_CHECKLIST.find((x) => x.id === selModelo.value);
+      modeloDoc.innerHTML = (m && m.arquivoRef)
+        ? `📄 Documento oficial: <a href="${esc(m.arquivoRef)}" target="_blank" rel="noopener">abrir PDF</a>`
+        : '';
+    });
+    const aplicarBtn = document.getElementById('aplicar-modelo');
+    if (aplicarBtn) aplicarBtn.addEventListener('click', async () => {
+      const m = MODELOS_CHECKLIST.find((x) => x.id === selModelo.value);
+      if (!m) return toast('Escolha um modelo na lista.', 'err');
+      l.exigencias = l.exigencias || [];
+      const existentes = new Set(l.exigencias.map((r) => r.texto));
+      let add = 0;
+      m.itens.forEach((t) => { if (!existentes.has(t)) { l.exigencias.push({ texto: t, concluido: false }); add++; } });
+      await DB.salvarLicenca(l);
+      selModelo.value = '';
+      modeloDoc.innerHTML = '';
+      renderChecklist(l);
+      atualizarProgresso(l);
+      toast(add ? `${add} item(ns) adicionado(s) do modelo.` : 'Todos os itens do modelo já estavam na checklist.', add ? 'ok' : '');
+    });
 
     // Upload de arquivos
     const dz = document.getElementById('dropzone');
