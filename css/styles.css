@@ -185,6 +185,9 @@ select.filtro { padding: 9px 12px; border: 1px solid var(--borda); border-radius
 .field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--azul-claro); border-color: var(--azul); }
 .field textarea { resize: vertical; min-height: 70px; }
 .field .hint { font-size: 12px; color: var(--texto-suave); }
+.senha-wrap { display: flex; gap: 8px; }
+.senha-wrap input { flex: 1; }
+.sub-label { font-size: 13px; font-weight: 700; color: var(--azul); text-transform: uppercase; letter-spacing: .03em; padding-top: 8px; border-top: 1px solid var(--borda); }
 .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
 /* ---------- Detalhe ---------- */

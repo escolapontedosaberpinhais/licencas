@@ -58,6 +58,32 @@
     return `${d}/${m}/${a}`;
   }
 
+  function urlAbs(u) {
+    u = (u || '').trim();
+    if (!u) return '';
+    return /^https?:\/\//i.test(u) ? u : 'https://' + u;
+  }
+  function linkHtml(u) {
+    return `<a href="${esc(urlAbs(u))}" target="_blank" rel="noopener">${esc(u)}</a>`;
+  }
+
+  // Bloco de detalhe com dados de acesso ao portal, custo e links de referência.
+  function seccaoAcessoCusto(l) {
+    const temAcesso = l.portal || l.login || l.senha || l.email || l.valor;
+    const links = (l.linksUteis || '').split('\n').map((s) => s.trim()).filter(Boolean);
+    if (!temAcesso && !links.length) return '';
+    let itens = '';
+    if (l.portal) itens += `<div class="detail-item"><div class="k">Site / Portal</div><div class="v">${linkHtml(l.portal)}</div></div>`;
+    if (l.valor) itens += `<div class="detail-item"><div class="k">Valor pago</div><div class="v">${esc(l.valor)}</div></div>`;
+    if (l.login) itens += `<div class="detail-item"><div class="k">Login / Usuário</div><div class="v">${esc(l.login)}</div></div>`;
+    if (l.email) itens += `<div class="detail-item"><div class="k">E-mail usado</div><div class="v">${esc(l.email)}</div></div>`;
+    if (l.senha) itens += `<div class="detail-item"><div class="k">Senha</div><div class="v"><span id="senha-detalhe" data-real="${esc(l.senha)}">••••••••</span> <button class="btn btn-sm" id="ver-senha-detalhe" type="button">mostrar</button></div></div>`;
+    const secLinks = links.length
+      ? `<div style="margin-top:12px"><div class="k">Links úteis / referências</div><ul style="margin:6px 0 0 18px">${links.map((x) => `<li>${linkHtml(x)}</li>`).join('')}</ul></div>`
+      : '';
+    return `<div class="detail-section"><h3>Acesso ao portal, custo e referências</h3><div class="detail-grid">${itens}</div>${secLinks}</div>`;
+  }
+
   function fmtTamanho(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
@@ -332,6 +358,38 @@
             <input type="date" name="dataVencimento" value="${esc(l.dataVencimento || '')}">
             <span class="hint">Deixe em branco se a licença não vence.</span>
           </div>
+
+          <div class="field full"><div class="sub-label">Acesso ao portal, custo e referências</div></div>
+          <div class="field">
+            <label>Site / Portal da solicitação</label>
+            <input name="portal" value="${esc(l.portal || '')}" placeholder="Ex.: portal.prefeitura.gov.br">
+          </div>
+          <div class="field">
+            <label>Valor pago</label>
+            <input name="valor" value="${esc(l.valor || '')}" placeholder="Ex.: R$ 150,00 ou Isento">
+          </div>
+          <div class="field">
+            <label>Login / Usuário de acesso</label>
+            <input name="login" value="${esc(l.login || '')}" placeholder="Usuário do portal" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>Senha de acesso</label>
+            <div class="senha-wrap">
+              <input name="senha" id="inp-senha" type="password" value="${esc(l.senha || '')}" placeholder="Senha do portal" autocomplete="new-password">
+              <button type="button" class="btn btn-sm" id="toggle-senha">mostrar</button>
+            </div>
+            <span class="hint">Fica salva só neste navegador. Não digite senhas bancárias.</span>
+          </div>
+          <div class="field full">
+            <label>E-mail usado na solicitação</label>
+            <input name="email" type="email" value="${esc(l.email || '')}" placeholder="email@escola.com" autocomplete="off">
+          </div>
+          <div class="field full">
+            <label>Links úteis / referências</label>
+            <textarea name="linksUteis" placeholder="Um link por linha: manual de boas práticas, páginas específicas do portal...">${esc(l.linksUteis || '')}</textarea>
+            <span class="hint">Cole um link por linha. Eles ficarão clicáveis na ficha da licença.</span>
+          </div>
+
           <div class="field full">
             <label>Observações</label>
             <textarea name="observacoes" placeholder="Anotações, condições, pendências...">${esc(l.observacoes || '')}</textarea>
@@ -354,6 +412,15 @@
       aplicar();
       selCat.addEventListener('change', () => { inpOrgao.value = CATEGORIAS[selCat.value].orgaoPadrao || ''; });
     }
+
+    // Mostrar/ocultar senha
+    const tglSenha = document.getElementById('toggle-senha');
+    if (tglSenha) tglSenha.addEventListener('click', () => {
+      const i = document.getElementById('inp-senha');
+      const visivel = i.type === 'text';
+      i.type = visivel ? 'password' : 'text';
+      tglSenha.textContent = visivel ? 'mostrar' : 'ocultar';
+    });
 
     document.getElementById('cancelar').addEventListener('click', fecharModal);
     form.addEventListener('submit', async (e) => {
@@ -411,6 +478,8 @@
       </div>
       ${l.observacoes ? `<div class="detail-item" style="margin-top:12px"><div class="k">Observações</div><div class="v" style="font-weight:400;white-space:pre-wrap">${esc(l.observacoes)}</div></div>` : ''}
 
+      ${seccaoAcessoCusto(l)}
+
       <div class="detail-section">
         <h3>Exigências / Checklist ${exig.length ? `(${ok}/${exig.length})` : ''}</h3>
         ${exig.length ? `<div class="progress"><div style="width:${pct}%"></div></div>` : ''}
@@ -459,6 +528,16 @@
       toast('Licença excluída.', '');
     });
     document.getElementById('renovar-lic').addEventListener('click', () => abrirRenovacao(l));
+
+    // Mostrar/ocultar senha na ficha
+    const verSenha = document.getElementById('ver-senha-detalhe');
+    if (verSenha) verSenha.addEventListener('click', () => {
+      const s = document.getElementById('senha-detalhe');
+      const mostrando = s.dataset.shown === '1';
+      s.textContent = mostrando ? '••••••••' : s.dataset.real;
+      s.dataset.shown = mostrando ? '' : '1';
+      verSenha.textContent = mostrando ? 'mostrar' : 'ocultar';
+    });
 
     // Adicionar exigência
     const addExig = async () => {
