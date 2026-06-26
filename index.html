@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestão de Licenças · Escola Ponte do Saber</title>
+  <meta name="description" content="Controle de licenças (sanitária, bombeiro, meio ambiente, educação) da Escola Ponte do Saber: vencimentos, arquivos, exigências e renovações." />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <!-- Cabeçalho -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-logo">📋</span>
+        <div class="brand-text">
+          <strong>Gestão de Licenças</strong>
+          <small>Escola Ponte do Saber</small>
+        </div>
+      </div>
+      <nav class="topnav">
+        <button class="nav-link active" data-view="dashboard">Painel</button>
+        <button class="nav-link" data-view="licencas">Licenças</button>
+        <button class="nav-link" data-view="config">Backup</button>
+      </nav>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" id="btn-nova-licenca">+ Nova licença</button>
+      </div>
+    </header>
+
+    <!-- Conteúdo principal -->
+    <main id="main" class="main"></main>
+
+    <footer class="footer">
+      <span>Os dados ficam salvos somente neste navegador/computador. Faça backups com frequência na aba <strong>Backup</strong>.</span>
+    </footer>
+  </div>
+
+  <!-- Modal de licença -->
+  <div class="modal-overlay" id="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2 id="modal-title">Nova licença</h2>
+        <button class="icon-btn" id="modal-close" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div id="toasts" class="toasts"></div>
+
+  <script src="js/db.js"></script>
+  <script src="js/seed.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
