@@ -100,6 +100,26 @@ const CATEGORIAS = {
 const ORDEM_CATEGORIAS = ['sanitaria', 'bombeiro', 'meio_ambiente', 'educacao', 'alvara', 'acessibilidade', 'outros'];
 
 /**
+ * Tipos de manutenção periódica.
+ * `periodicidade` = intervalo recomendado em meses (null = sem sugestão automática).
+ */
+const TIPOS_MANUTENCAO = {
+  extintor:      { nome: 'Extintores',              icone: '🧯',  periodicidade: 12 },
+  caixa_agua:    { nome: "Caixa d'água",            icone: '💧',  periodicidade: 6  },
+  caixa_gordura: { nome: 'Caixa de gordura',        icone: '🪣',  periodicidade: 3  },
+  dedetizacao:   { nome: 'Dedetização (insetos)',   icone: '🪲',  periodicidade: 6  },
+  desratizacao:  { nome: 'Desratização (roedores)', icone: '🐀',  periodicidade: 6  },
+  climatizacao:  { nome: 'Filtros de climatização', icone: '❄️',  periodicidade: 6  },
+  caixa_areia:   { nome: 'Caixa de areia',          icone: '🏖️', periodicidade: 6  },
+  outros:        { nome: 'Outros',                  icone: '🔧',  periodicidade: null },
+};
+
+const ORDEM_TIPOS_MANUTENCAO = [
+  'extintor', 'caixa_agua', 'caixa_gordura', 'dedetizacao',
+  'desratizacao', 'climatizacao', 'caixa_areia', 'outros',
+];
+
+/**
  * Modelos de checklist prontos, com listas oficiais/completas de exigências.
  * Podem ser escolhidos ao cadastrar uma licença ou aplicados depois, na ficha.
  * `arquivoRef` (opcional) aponta para o documento oficial guardado no projeto.

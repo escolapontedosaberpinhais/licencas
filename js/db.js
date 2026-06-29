@@ -1,11 +1,11 @@
 /**
  * Camada de persistência usando IndexedDB.
- * Dois "armazéns": "licencas" (registros) e "arquivos" (blobs dos documentos).
+ * Três "armazéns": "licencas" (registros), "arquivos" (blobs) e "manutencoes".
  * Tudo fica salvo apenas neste navegador/computador.
  */
 const DB = (() => {
   const NOME = 'ponte_licencas';
-  const VERSAO = 1;
+  const VERSAO = 2;
   let _db = null;
 
   function abrir() {
@@ -19,6 +19,9 @@ const DB = (() => {
         }
         if (!db.objectStoreNames.contains('arquivos')) {
           db.createObjectStore('arquivos', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('manutencoes')) {
+          db.createObjectStore('manutencoes', { keyPath: 'id' });
         }
       };
       req.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
@@ -73,11 +76,30 @@ const DB = (() => {
     return pedir(tx('arquivos', 'readwrite').delete(id));
   }
 
+  // ---------- Manutenções ----------
+  async function listarManutencoes() {
+    await abrir();
+    return pedir(tx('manutencoes', 'readonly').getAll());
+  }
+  async function obterManutencao(id) {
+    await abrir();
+    return pedir(tx('manutencoes', 'readonly').get(id));
+  }
+  async function salvarManutencao(m) {
+    await abrir();
+    return pedir(tx('manutencoes', 'readwrite').put(m));
+  }
+  async function removerManutencao(id) {
+    await abrir();
+    return pedir(tx('manutencoes', 'readwrite').delete(id));
+  }
+
   // ---------- Backup ----------
   async function exportarTudo() {
     await abrir();
     const licencas = await listarLicencas();
     const arquivos = await pedir(tx('arquivos', 'readonly').getAll());
+    const manutencoes = await listarManutencoes();
     // Converte blobs para base64 para caber no JSON
     const arquivosB64 = [];
     for (const a of arquivos) {
@@ -86,10 +108,11 @@ const DB = (() => {
     }
     return {
       app: 'ponte-licencas',
-      versao: 1,
+      versao: 2,
       exportadoEm: new Date().toISOString(),
       licencas,
       arquivos: arquivosB64,
+      manutencoes,
     };
   }
 
@@ -98,6 +121,7 @@ const DB = (() => {
     if (substituir) {
       await pedir(tx('licencas', 'readwrite').clear());
       await pedir(tx('arquivos', 'readwrite').clear());
+      await pedir(tx('manutencoes', 'readwrite').clear());
     }
     for (const lic of (dados.licencas || [])) {
       await salvarLicenca(lic);
@@ -105,6 +129,9 @@ const DB = (() => {
     for (const a of (dados.arquivos || [])) {
       const blob = base64ParaBlob(a.base64);
       await salvarArquivo(a.id, blob);
+    }
+    for (const m of (dados.manutencoes || [])) {
+      await salvarManutencao(m);
     }
   }
 
@@ -128,6 +155,7 @@ const DB = (() => {
   return {
     listarLicencas, obterLicenca, salvarLicenca, removerLicenca,
     salvarArquivo, obterArquivo, removerArquivo,
+    listarManutencoes, obterManutencao, salvarManutencao, removerManutencao,
     exportarTudo, importarTudo,
   };
 })();

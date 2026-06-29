@@ -16,6 +16,7 @@
     categoria: 'todas',
     statusFiltro: 'todos',
     licencas: [],
+    manutencoes: [],
   };
 
   // ---------------- Utilidades ----------------
@@ -108,15 +109,20 @@
   }
 
   async function carregar() {
-    estado.licencas = await DB.listarLicencas();
+    [estado.licencas, estado.manutencoes] = await Promise.all([
+      DB.listarLicencas(),
+      DB.listarManutencoes(),
+    ]);
   }
 
   // ---------------- Render principal ----------------
   function render() {
     document.querySelectorAll('.nav-link').forEach((b) =>
       b.classList.toggle('active', b.dataset.view === estado.view));
+    document.getElementById('btn-nova-licenca').hidden = estado.view === 'manutencoes';
     if (estado.view === 'dashboard') renderDashboard();
     else if (estado.view === 'licencas') renderLista();
+    else if (estado.view === 'manutencoes') renderManutencoes();
     else if (estado.view === 'config') renderConfig();
   }
 
@@ -133,6 +139,10 @@
 
     const acoes = lics.filter((l) => ['vencida', 'breve'].includes(statusDe(l)))
       .sort((a, b) => (a.dataVencimento || '').localeCompare(b.dataVencimento || ''));
+
+    const manutAlerts = estado.manutencoes
+      .filter((m) => ['vencida', 'breve'].includes(statusManutencao(m)))
+      .sort((a, b) => (a.dataProxima || '').localeCompare(b.dataProxima || ''));
 
     main.innerHTML = `
       <div class="page-head">
@@ -166,6 +176,12 @@
         ${proximas.length ? `<div class="lic-list">${proximas.map(cardLicenca).join('')}</div>`
           : `<p class="muted">Nenhuma licença com data de vencimento cadastrada.</p>`}
       </div>
+
+      ${manutAlerts.length ? `
+      <div class="detail-section">
+        <h3>🔧 Manutenções que requerem ação</h3>
+        <div class="lic-list">${manutAlerts.map(cardManutencao).join('')}</div>
+      </div>` : ''}
     `;
 
     main.querySelectorAll('[data-stat]').forEach((el) => {
@@ -177,6 +193,7 @@
       });
     });
     ligarCardsLicenca();
+    ligarCardsManutencao();
   }
 
   function statCard(cls, num, lbl) {
@@ -824,6 +841,265 @@
       estado.view = 'dashboard';
       render();
     } catch (err) { toast('Erro ao importar: ' + err.message, 'err'); }
+  }
+
+  // ---------------- Manutenções ----------------
+
+  function statusManutencao(m) {
+    const dias = diasAteVencimento(m.dataProxima);
+    if (dias === null) return 'semvenc';
+    if (dias < 0) return 'vencida';
+    if (dias <= DIAS_BREVE) return 'breve';
+    if (dias <= DIAS_ATENCAO) return 'atencao';
+    return 'emdia';
+  }
+
+  function textoPrazoManut(m) {
+    const dias = diasAteVencimento(m.dataProxima);
+    if (dias === null) return 'Sem próxima data';
+    if (dias < 0) return `Atrasada há ${Math.abs(dias)} dia(s)`;
+    if (dias === 0) return 'Vence hoje';
+    return `Em ${dias} dia(s)`;
+  }
+
+  function cardManutencao(m) {
+    const st = statusManutencao(m);
+    const tipo = TIPOS_MANUTENCAO[m.tipo] || TIPOS_MANUTENCAO.outros;
+    return `<div class="lic-card ${st}" data-mid="${m.id}">
+      <div class="lic-icon">${tipo.icone}</div>
+      <div class="lic-main">
+        <div class="lic-title">${esc(m.nome)}</div>
+        <div class="lic-meta">
+          <span class="cat-tag" style="background:var(--cinza-bg);color:var(--cinza)">${tipo.nome}</span>
+          ${m.responsavel ? `<span>👤 ${esc(m.responsavel)}</span>` : ''}
+        </div>
+        <div class="mini-icons" style="margin-top:6px">
+          ${m.dataUltimaRealizacao ? `<span>✅ Última: ${fmtData(m.dataUltimaRealizacao)}</span>` : '<span>Sem registro anterior</span>'}
+          <span>📅 Próxima: ${fmtData(m.dataProxima)}</span>
+        </div>
+      </div>
+      <div class="lic-right">
+        <span class="badge ${st}">${STATUS_LABEL[st]}</span>
+        <span class="lic-prazo muted">${textoPrazoManut(m)}</span>
+      </div>
+    </div>`;
+  }
+
+  function ligarCardsManutencao() {
+    main.querySelectorAll('[data-mid]').forEach((c) =>
+      c.addEventListener('click', () => abrirDetalheManutencao(c.dataset.mid)));
+  }
+
+  function renderManutencoes() {
+    const manuts = estado.manutencoes.slice().sort((a, b) =>
+      (a.dataProxima || '9999-12-31').localeCompare(b.dataProxima || '9999-12-31'));
+    main.innerHTML = `
+      <div class="page-head">
+        <div><h1>Manutenções Periódicas</h1><p>${manuts.length} controle(s) cadastrado(s).</p></div>
+        <button class="btn btn-primary" id="btn-nova-manut-page">+ Nova manutenção</button>
+      </div>
+      ${manuts.length ? `<div class="lic-list">${manuts.map(cardManutencao).join('')}</div>` : `
+        <div class="empty">
+          <div class="em-icon">🔧</div>
+          <h3>Nenhuma manutenção cadastrada</h3>
+          <p>Cadastre o controle de extintores, caixas d'água, dedetização e outros serviços periódicos.</p>
+        </div>`}
+    `;
+    document.getElementById('btn-nova-manut-page').addEventListener('click', () => abrirFormManutencao(null));
+    ligarCardsManutencao();
+  }
+
+  function abrirFormManutencao(manutencao) {
+    const editando = !!manutencao;
+    const m = manutencao || { tipo: 'extintor' };
+    const opTipos = ORDEM_TIPOS_MANUTENCAO.map((k) => {
+      const v = TIPOS_MANUTENCAO[k];
+      return `<option value="${k}" ${m.tipo === k ? 'selected' : ''}>${v.icone} ${v.nome}</option>`;
+    }).join('');
+    const opLics = `<option value="">Nenhuma</option>` +
+      estado.licencas.map((l) => {
+        const cat = CATEGORIAS[l.categoria] || CATEGORIAS.outros;
+        return `<option value="${l.id}" ${m.licencaVinculada === l.id ? 'selected' : ''}>${cat.icone} ${esc(l.nome)}</option>`;
+      }).join('');
+
+    abrirModal(editando ? 'Editar manutenção' : 'Nova manutenção', `
+      <form id="form-manut">
+        <div class="form-grid">
+          <div class="field full">
+            <label>Nome / Descrição *</label>
+            <input name="nome" required value="${esc(m.nome || '')}" placeholder="Ex.: Extintores – Bloco A">
+          </div>
+          <div class="field">
+            <label>Tipo *</label>
+            <select name="tipo">${opTipos}</select>
+          </div>
+          <div class="field">
+            <label>Responsável</label>
+            <input name="responsavel" value="${esc(m.responsavel || '')}" placeholder="Empresa ou pessoa responsável">
+          </div>
+          <div class="field">
+            <label>Data da última realização</label>
+            <input type="date" name="dataUltimaRealizacao" value="${esc(m.dataUltimaRealizacao || '')}">
+          </div>
+          <div class="field">
+            <label>Próxima realização</label>
+            <input type="date" name="dataProxima" value="${esc(m.dataProxima || '')}">
+          </div>
+          <div class="field full">
+            <label>Licença vinculada (opcional)</label>
+            <select name="licencaVinculada">${opLics}</select>
+            <span class="hint">Associe esta manutenção a uma licença que a exige.</span>
+          </div>
+          <div class="field full">
+            <label>Observações</label>
+            <textarea name="observacoes" placeholder="Empresa, contato, número da nota, observações...">${esc(m.observacoes || '')}</textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" id="cancel-manut">Cancelar</button>
+          <button type="submit" class="btn btn-primary">${editando ? 'Salvar alterações' : 'Cadastrar manutenção'}</button>
+        </div>
+      </form>
+    `);
+
+    document.getElementById('cancel-manut').addEventListener('click', fecharModal);
+    document.getElementById('form-manut').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      const agora = new Date().toISOString();
+      if (editando) {
+        Object.assign(m, fd, { atualizadoEm: agora });
+        await DB.salvarManutencao(m);
+        toast('Manutenção atualizada.', 'ok');
+      } else {
+        const nova = {
+          id: uid(),
+          ...fd,
+          historico: [{ data: agora, acao: 'Controle cadastrado' }],
+          criadoEm: agora,
+          atualizadoEm: agora,
+        };
+        await DB.salvarManutencao(nova);
+        toast('Manutenção cadastrada.', 'ok');
+      }
+      await carregar();
+      fecharModal();
+      if (editando) abrirDetalheManutencao(m.id); else renderManutencoes();
+    });
+  }
+
+  async function abrirDetalheManutencao(id) {
+    const m = await DB.obterManutencao(id);
+    if (!m) return;
+    const st = statusManutencao(m);
+    const tipo = TIPOS_MANUTENCAO[m.tipo] || TIPOS_MANUTENCAO.outros;
+    let licNome = '—';
+    if (m.licencaVinculada) {
+      const lic = estado.licencas.find((l) => l.id === m.licencaVinculada);
+      if (lic) { const cat = CATEGORIAS[lic.categoria] || CATEGORIAS.outros; licNome = cat.icone + ' ' + lic.nome; }
+    }
+
+    abrirModal(`${tipo.icone} ${m.nome}`, `
+      <div class="tags-line" style="margin-bottom:14px">
+        <span class="cat-tag" style="background:var(--cinza-bg);color:var(--cinza)">${tipo.nome}</span>
+        <span class="badge ${st}">${STATUS_LABEL[st]}</span>
+        <span class="muted">${textoPrazoManut(m)}</span>
+      </div>
+
+      <div class="detail-grid">
+        <div class="detail-item"><div class="k">Última realização</div><div class="v">${fmtData(m.dataUltimaRealizacao)}</div></div>
+        <div class="detail-item"><div class="k">Próxima realização</div><div class="v">${fmtData(m.dataProxima)}</div></div>
+        <div class="detail-item"><div class="k">Responsável</div><div class="v">${esc(m.responsavel) || '—'}</div></div>
+        <div class="detail-item"><div class="k">Licença vinculada</div><div class="v">${licNome}</div></div>
+      </div>
+      ${m.observacoes ? `<div class="detail-item" style="margin-top:12px"><div class="k">Observações</div><div class="v" style="font-weight:400;white-space:pre-wrap">${esc(m.observacoes)}</div></div>` : ''}
+
+      <div class="detail-section">
+        <h3>Histórico de realizações</h3>
+        <ul class="hist-list" id="hist-list-manut"></ul>
+      </div>
+
+      <div class="divider"></div>
+      <div class="form-actions" style="justify-content:space-between">
+        <button class="btn btn-danger" id="del-manut">🗑️ Excluir</button>
+        <div style="display:flex;gap:10px">
+          <button class="btn" id="registrar-manut">✅ Registrar realização</button>
+          <button class="btn btn-primary" id="edit-manut">✏️ Editar</button>
+        </div>
+      </div>
+    `);
+
+    const h = (m.historico || []).slice().reverse();
+    document.getElementById('hist-list-manut').innerHTML = h.map((it) => `
+      <li class="hist-item">
+        <div>${esc(it.acao)}</div>
+        <div class="ht">${new Date(it.data).toLocaleString('pt-BR')}</div>
+      </li>`).join('') || '<li class="muted" style="font-size:14px">Sem registros.</li>';
+
+    document.getElementById('edit-manut').addEventListener('click', () => abrirFormManutencao(m));
+    document.getElementById('del-manut').addEventListener('click', async () => {
+      if (!confirm(`Excluir "${m.nome}"? Esta ação não pode ser desfeita.`)) return;
+      await DB.removerManutencao(m.id);
+      await carregar();
+      fecharModal();
+      renderManutencoes();
+      toast('Manutenção excluída.', '');
+    });
+    document.getElementById('registrar-manut').addEventListener('click', () => abrirRegistroManutencao(m));
+  }
+
+  function abrirRegistroManutencao(m) {
+    const tipo = TIPOS_MANUTENCAO[m.tipo] || TIPOS_MANUTENCAO.outros;
+    let suggestNext = '';
+    if (tipo.periodicidade) {
+      const next = new Date();
+      next.setMonth(next.getMonth() + tipo.periodicidade);
+      suggestNext = next.toISOString().slice(0, 10);
+    }
+
+    abrirModal('✅ Registrar realização', `
+      <p class="muted" style="margin-bottom:14px">Registre a realização de <strong>${esc(m.nome)}</strong>. A data será gravada no histórico.</p>
+      <form id="form-reg-manut">
+        <div class="form-grid">
+          <div class="field">
+            <label>Data de realização *</label>
+            <input type="date" name="dataRealizada" required value="${new Date().toISOString().slice(0, 10)}">
+          </div>
+          <div class="field">
+            <label>Próxima realização</label>
+            <input type="date" name="dataProxima" value="${suggestNext}">
+            ${tipo.periodicidade ? `<span class="hint">Periodicidade sugerida: a cada ${tipo.periodicidade} meses.</span>` : ''}
+          </div>
+          <div class="field full">
+            <label>Observações (opcional)</label>
+            <textarea name="obs" placeholder="Empresa responsável, número da nota, observações..."></textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" id="cancel-reg-manut">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar realização</button>
+        </div>
+      </form>
+    `);
+
+    document.getElementById('cancel-reg-manut').addEventListener('click', () => abrirDetalheManutencao(m.id));
+    document.getElementById('form-reg-manut').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      const agora = new Date().toISOString();
+      m.historico = m.historico || [];
+      m.historico.push({
+        data: agora,
+        acao: `Realizado em ${fmtData(fd.dataRealizada)}${fd.dataProxima ? ` · próxima: ${fmtData(fd.dataProxima)}` : ''}${fd.obs ? ` · ${fd.obs}` : ''}`,
+      });
+      m.dataUltimaRealizacao = fd.dataRealizada;
+      if (fd.dataProxima) m.dataProxima = fd.dataProxima;
+      m.atualizadoEm = agora;
+      await DB.salvarManutencao(m);
+      await carregar();
+      toast('Realização registrada.', 'ok');
+      abrirDetalheManutencao(m.id);
+    });
   }
 
   // ---------------- Navegação ----------------
