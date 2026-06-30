@@ -7,4 +7,4 @@
  * SUPABASE_ANON_KEY → "anon public" (chave longa que começa com eyJ...)
  */
 const SUPABASE_URL      = 'https://tfedrfuchnqgebnfenuk.supabase.co';
-const SUPABASE_ANON_KEY = 'cole-aqui-a-anon-key'; // Settings → API → anon public
+const SUPABASE_ANON_KEY = 'sb_publishable_dqmvr6Caypobg6dBux5V1g_Wkm4DBD3';
