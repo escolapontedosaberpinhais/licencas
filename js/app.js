@@ -668,15 +668,19 @@
     const arquivos = Array.from(fileList);
     if (!arquivos.length) return;
     l.arquivos = l.arquivos || [];
+    let ok = 0;
     for (const f of arquivos) {
-      if (f.size > 15 * 1048576) { toast(`"${f.name}" é maior que 15 MB e foi ignorado.`, 'err'); continue; }
-      const aid = uid();
-      await DB.salvarArquivo(aid, f);
-      l.arquivos.push({ id: aid, nome: f.name, tipo: f.type, tamanho: f.size, adicionadoEm: new Date().toISOString() });
+      if (f.size > 50 * 1048576) { toast(`"${f.name}" é maior que 50 MB e foi ignorado.`, 'err'); continue; }
+      try {
+        const aid = uid();
+        const storagePath = await DB.salvarArquivo(aid, l.id, f);
+        l.arquivos.push({ id: aid, nome: f.name, tipo: f.type, tamanho: f.size, storagePath, adicionadoEm: new Date().toISOString() });
+        ok++;
+      } catch (err) { toast(`Erro ao enviar "${f.name}": ${err.message}`, 'err'); }
     }
     await DB.salvarLicenca(l);
     renderArquivos(l);
-    toast('Arquivo(s) anexado(s).', 'ok');
+    if (ok) toast(`${ok} arquivo(s) enviado(s).`, 'ok');
   }
 
   function renderArquivos(l) {
@@ -694,20 +698,20 @@
 
     wrap.querySelectorAll('[data-ver]').forEach((b) =>
       b.addEventListener('click', async () => {
-        const reg = await DB.obterArquivo(b.dataset.ver);
-        if (!reg) return toast('Arquivo não encontrado.', 'err');
         const meta = (l.arquivos || []).find((x) => x.id === b.dataset.ver);
-        const url = URL.createObjectURL(reg.blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = meta ? meta.nome : 'arquivo';
-        a.target = '_blank';
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        if (!meta?.storagePath) return toast('Arquivo não encontrado no servidor.', 'err');
+        try {
+          const url = await DB.obterArquivoUrl(meta.storagePath);
+          const a = document.createElement('a');
+          a.href = url; a.download = meta.nome; a.target = '_blank';
+          document.body.appendChild(a); a.click(); a.remove();
+        } catch (err) { toast('Erro ao abrir arquivo: ' + err.message, 'err'); }
       }));
     wrap.querySelectorAll('[data-rem]').forEach((b) =>
       b.addEventListener('click', async () => {
         if (!confirm('Remover este arquivo?')) return;
-        await DB.removerArquivo(b.dataset.rem);
+        const meta = (l.arquivos || []).find((x) => x.id === b.dataset.rem);
+        if (meta?.storagePath) await DB.removerArquivo(meta.storagePath);
         l.arquivos = (l.arquivos || []).filter((x) => x.id !== b.dataset.rem);
         await DB.salvarLicenca(l);
         renderArquivos(l);
@@ -774,22 +778,23 @@
   // ---------------- Backup / Config ----------------
   function renderConfig() {
     main.innerHTML = `
-      <div class="page-head"><div><h1>Backup e dados</h1><p>Exporte e guarde seus dados com segurança.</p></div></div>
+      <div class="page-head"><div><h1>Backup e dados</h1><p>Exporte e restaure os dados do sistema.</p></div></div>
 
       <div class="card">
-        <h2>⚠️ Importante</h2>
-        <p>Os dados deste sistema ficam salvos <strong>apenas neste navegador, neste computador</strong>. Se o navegador for limpo, o computador trocado ou os dados apagados, tudo se perde. Faça backups regularmente e guarde o arquivo em local seguro (pen drive, e-mail, nuvem).</p>
+        <h2>☁️ Armazenamento na nuvem</h2>
+        <p>Licenças, manutenções e arquivos ficam salvos no <strong>Supabase</strong> (nuvem). Os dados são acessíveis de qualquer dispositivo após login e não se perdem se o navegador for limpo.</p>
+        <p style="margin-top:8px">Os arquivos anexados ficam no <strong>Supabase Storage</strong> e <em>não</em> são incluídos no backup JSON — apenas os metadados. Re-faça o upload dos documentos se restaurar de um backup antigo.</p>
       </div>
 
       <div class="card">
         <h2>Exportar backup</h2>
-        <p>Gera um arquivo <code>.json</code> com todas as licenças, exigências e arquivos anexados. Recomenda-se exportar ao menos uma vez por semana.</p>
-        <div class="row"><button class="btn btn-primary" id="btn-export">⬇️ Exportar backup completo</button></div>
+        <p>Gera um arquivo <code>.json</code> com todas as licenças e manutenções. Recomenda-se exportar ao menos uma vez por semana como cópia de segurança extra.</p>
+        <div class="row"><button class="btn btn-primary" id="btn-export">⬇️ Exportar backup</button></div>
       </div>
 
       <div class="card">
         <h2>Importar backup</h2>
-        <p>Restaura os dados a partir de um arquivo de backup. Você pode <strong>mesclar</strong> com os dados atuais ou <strong>substituir</strong> tudo.</p>
+        <p>Restaura licenças e manutenções a partir de um arquivo de backup. Você pode <strong>mesclar</strong> com os dados atuais ou <strong>substituir</strong> tudo.</p>
         <div class="row">
           <input type="file" id="imp-file" accept="application/json,.json">
         </div>
@@ -801,7 +806,7 @@
 
       <div class="card">
         <h2>Sobre</h2>
-        <p>Sistema de Gestão de Licenças — Escola Ponte do Saber. Categorias disponíveis: ${ORDEM_CATEGORIAS.map((c) => CATEGORIAS[c].icone + ' ' + CATEGORIAS[c].nome).join(', ')}.</p>
+        <p>Sistema de Gestão de Licenças — Escola Ponte do Saber. Categorias: ${ORDEM_CATEGORIAS.map((c) => CATEGORIAS[c].icone + ' ' + CATEGORIAS[c].nome).join(', ')}.</p>
       </div>
     `;
 
@@ -837,7 +842,7 @@
       }
       await DB.importarTudo(dados, { substituir });
       await carregar();
-      toast('Backup importado com sucesso.', 'ok');
+      toast('Backup importado. Arquivos anexados precisam ser reenviados manualmente.', 'ok');
       estado.view = 'dashboard';
       render();
     } catch (err) { toast('Erro ao importar: ' + err.message, 'err'); }
@@ -1111,11 +1116,70 @@
     }));
   document.getElementById('btn-nova-licenca').addEventListener('click', () => abrirFormulario(null));
 
+  // ---------------- Auth ----------------
+  const loginOverlay = document.getElementById('login-overlay');
+  const loginErro    = document.getElementById('login-erro');
+
+  function mostrarApp(user) {
+    loginOverlay.hidden = true;
+    const el = document.getElementById('user-email');
+    if (el) el.textContent = user?.email || '';
+  }
+  function mostrarLogin() {
+    loginOverlay.hidden = false;
+    main.innerHTML = '';
+    estado.licencas = [];
+    estado.manutencoes = [];
+  }
+
+  // Toggle senha no login
+  const tglLoginSenha = document.getElementById('toggle-login-senha');
+  if (tglLoginSenha) tglLoginSenha.addEventListener('click', () => {
+    const i = document.getElementById('login-senha');
+    const v = i.type === 'text';
+    i.type = v ? 'password' : 'text';
+    tglLoginSenha.textContent = v ? 'mostrar' : 'ocultar';
+  });
+
+  document.getElementById('form-login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd  = new FormData(e.target);
+    const btn = document.getElementById('btn-entrar');
+    btn.disabled = true; btn.textContent = 'Entrando…';
+    loginErro.textContent = '';
+    try {
+      await DB.signIn(fd.get('email'), fd.get('senha'));
+      const user = await DB.getUser();
+      mostrarApp(user);
+      await carregar();
+      render();
+    } catch {
+      loginErro.textContent = 'E-mail ou senha incorretos. Verifique e tente novamente.';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Entrar';
+    }
+  });
+
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    if (!confirm('Sair do sistema?')) return;
+    await DB.signOut();
+    mostrarLogin();
+  });
+
+  // Detecta expiração de sessão automaticamente
+  DB.onAuthChange((user) => { if (!user) mostrarLogin(); });
+
   // ---------------- Início ----------------
   (async function init() {
     try {
-      await carregar();
-      render();
+      const user = await DB.getUser();
+      if (user) {
+        mostrarApp(user);
+        await carregar();
+        render();
+      } else {
+        mostrarLogin();
+      }
     } catch (err) {
       main.innerHTML = `<div class="card"><h2>Erro ao iniciar</h2><p>${esc(err.message)}</p></div>`;
     }

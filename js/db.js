@@ -1,160 +1,114 @@
 /**
- * Camada de persistência usando IndexedDB.
- * Três "armazéns": "licencas" (registros), "arquivos" (blobs) e "manutencoes".
- * Tudo fica salvo apenas neste navegador/computador.
+ * Camada de persistência usando Supabase (Postgres + Storage).
+ * Substitui o IndexedDB anterior — dados ficam na nuvem.
+ * Requer: js/config.js carregado antes (SUPABASE_URL e SUPABASE_ANON_KEY).
  */
 const DB = (() => {
-  const NOME = 'ponte_licencas';
-  const VERSAO = 2;
-  let _db = null;
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  function abrir() {
-    return new Promise((resolve, reject) => {
-      if (_db) return resolve(_db);
-      const req = indexedDB.open(NOME, VERSAO);
-      req.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('licencas')) {
-          db.createObjectStore('licencas', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('arquivos')) {
-          db.createObjectStore('arquivos', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('manutencoes')) {
-          db.createObjectStore('manutencoes', { keyPath: 'id' });
-        }
-      };
-      req.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
-      req.onerror = (e) => reject(e.target.error);
-    });
+  // ---------- Auth ----------
+  async function getUser() {
+    const { data: { user } } = await sb.auth.getUser();
+    return user;
   }
-
-  function tx(store, modo) {
-    return _db.transaction(store, modo).objectStore(store);
+  async function signIn(email, password) {
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
   }
-
-  function pedir(req) {
-    return new Promise((resolve, reject) => {
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
+  async function signOut() {
+    const { error } = await sb.auth.signOut();
+    if (error) throw error;
+  }
+  function onAuthChange(cb) {
+    sb.auth.onAuthStateChange((_evt, session) => cb(session?.user ?? null));
   }
 
   // ---------- Licenças ----------
   async function listarLicencas() {
-    await abrir();
-    return pedir(tx('licencas', 'readonly').getAll());
+    const { data, error } = await sb.from('licencas').select('data');
+    if (error) throw error;
+    return (data || []).map(r => r.data);
   }
   async function obterLicenca(id) {
-    await abrir();
-    return pedir(tx('licencas', 'readonly').get(id));
+    const { data, error } = await sb.from('licencas').select('data').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data?.data ?? null;
   }
   async function salvarLicenca(licenca) {
-    await abrir();
-    return pedir(tx('licencas', 'readwrite').put(licenca));
+    const { error } = await sb.from('licencas').upsert({ id: licenca.id, data: licenca }, { onConflict: 'id' });
+    if (error) throw error;
   }
   async function removerLicenca(id) {
-    await abrir();
     const lic = await obterLicenca(id);
-    if (lic && lic.arquivos) {
-      for (const a of lic.arquivos) await removerArquivo(a.id);
+    if (lic?.arquivos?.length) {
+      const paths = lic.arquivos.map(a => a.storagePath).filter(Boolean);
+      if (paths.length) await sb.storage.from('documentos').remove(paths);
     }
-    return pedir(tx('licencas', 'readwrite').delete(id));
+    const { error } = await sb.from('licencas').delete().eq('id', id);
+    if (error) throw error;
   }
 
-  // ---------- Arquivos (blobs) ----------
-  async function salvarArquivo(id, blob) {
-    await abrir();
-    return pedir(tx('arquivos', 'readwrite').put({ id, blob }));
+  // ---------- Arquivos (Supabase Storage) ----------
+  async function salvarArquivo(arquivoId, licencaId, blob) {
+    const path = `${licencaId}/${arquivoId}`;
+    const { error } = await sb.storage.from('documentos').upload(path, blob, { upsert: true });
+    if (error) throw error;
+    return path;
   }
-  async function obterArquivo(id) {
-    await abrir();
-    return pedir(tx('arquivos', 'readonly').get(id));
+  async function obterArquivoUrl(storagePath) {
+    const { data, error } = await sb.storage.from('documentos').createSignedUrl(storagePath, 3600);
+    if (error) throw error;
+    return data.signedUrl;
   }
-  async function removerArquivo(id) {
-    await abrir();
-    return pedir(tx('arquivos', 'readwrite').delete(id));
+  async function removerArquivo(storagePath) {
+    if (!storagePath) return;
+    await sb.storage.from('documentos').remove([storagePath]);
   }
 
   // ---------- Manutenções ----------
   async function listarManutencoes() {
-    await abrir();
-    return pedir(tx('manutencoes', 'readonly').getAll());
+    const { data, error } = await sb.from('manutencoes').select('data');
+    if (error) throw error;
+    return (data || []).map(r => r.data);
   }
   async function obterManutencao(id) {
-    await abrir();
-    return pedir(tx('manutencoes', 'readonly').get(id));
+    const { data, error } = await sb.from('manutencoes').select('data').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data?.data ?? null;
   }
   async function salvarManutencao(m) {
-    await abrir();
-    return pedir(tx('manutencoes', 'readwrite').put(m));
+    const { error } = await sb.from('manutencoes').upsert({ id: m.id, data: m }, { onConflict: 'id' });
+    if (error) throw error;
   }
   async function removerManutencao(id) {
-    await abrir();
-    return pedir(tx('manutencoes', 'readwrite').delete(id));
+    const { error } = await sb.from('manutencoes').delete().eq('id', id);
+    if (error) throw error;
   }
 
   // ---------- Backup ----------
   async function exportarTudo() {
-    await abrir();
-    const licencas = await listarLicencas();
-    const arquivos = await pedir(tx('arquivos', 'readonly').getAll());
-    const manutencoes = await listarManutencoes();
-    // Converte blobs para base64 para caber no JSON
-    const arquivosB64 = [];
-    for (const a of arquivos) {
-      const base64 = await blobParaBase64(a.blob);
-      arquivosB64.push({ id: a.id, base64 });
-    }
+    const [licencas, manutencoes] = await Promise.all([listarLicencas(), listarManutencoes()]);
     return {
       app: 'ponte-licencas',
-      versao: 2,
+      versao: 3,
       exportadoEm: new Date().toISOString(),
       licencas,
-      arquivos: arquivosB64,
       manutencoes,
     };
   }
-
   async function importarTudo(dados, { substituir }) {
-    await abrir();
     if (substituir) {
-      await pedir(tx('licencas', 'readwrite').clear());
-      await pedir(tx('arquivos', 'readwrite').clear());
-      await pedir(tx('manutencoes', 'readwrite').clear());
+      await sb.from('licencas').delete().gte('id', '');
+      await sb.from('manutencoes').delete().gte('id', '');
     }
-    for (const lic of (dados.licencas || [])) {
-      await salvarLicenca(lic);
-    }
-    for (const a of (dados.arquivos || [])) {
-      const blob = base64ParaBlob(a.base64);
-      await salvarArquivo(a.id, blob);
-    }
-    for (const m of (dados.manutencoes || [])) {
-      await salvarManutencao(m);
-    }
-  }
-
-  function blobParaBase64(blob) {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result);
-      r.onerror = reject;
-      r.readAsDataURL(blob);
-    });
-  }
-  function base64ParaBlob(dataUrl) {
-    const [meta, b64] = dataUrl.split(',');
-    const mime = (meta.match(/data:(.*?);/) || [])[1] || 'application/octet-stream';
-    const bin = atob(b64);
-    const arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-    return new Blob([arr], { type: mime });
+    for (const lic of (dados.licencas || [])) await salvarLicenca(lic);
+    for (const m of (dados.manutencoes || [])) await salvarManutencao(m);
   }
 
   return {
+    getUser, signIn, signOut, onAuthChange,
     listarLicencas, obterLicenca, salvarLicenca, removerLicenca,
-    salvarArquivo, obterArquivo, removerArquivo,
+    salvarArquivo, obterArquivoUrl, removerArquivo,
     listarManutencoes, obterManutencao, salvarManutencao, removerManutencao,
     exportarTudo, importarTudo,
   };

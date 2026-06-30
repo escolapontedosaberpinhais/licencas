@@ -237,6 +237,23 @@ select.filtro { padding: 9px 12px; border: 1px solid var(--borda); border-radius
 .muted { color: var(--texto-suave); }
 .tags-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
+/* ---------- Login ---------- */
+#login-overlay {
+  position: fixed; inset: 0; background: var(--azul-escuro);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200; padding: 20px;
+}
+#login-overlay[hidden] { display: none; }
+.login-card {
+  background: var(--branco); border-radius: 16px; padding: 36px;
+  width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,.4);
+}
+.login-title { text-align: center; font-size: 14px; color: var(--texto-suave); margin-bottom: 22px; }
+.login-erro { color: var(--vermelho); font-size: 13px; margin-top: 10px; min-height: 20px; text-align: center; }
+.login-actions { margin-top: 18px; }
+.login-actions .btn { width: 100%; padding: 12px; font-size: 15px; }
+.login-actions .btn:disabled { opacity: .6; cursor: not-allowed; }
+
 @media (max-width: 640px) {
   .form-grid, .detail-grid { grid-template-columns: 1fr; }
   .topbar { gap: 12px; }
