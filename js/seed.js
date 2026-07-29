@@ -140,6 +140,25 @@ const ORDEM_TIPOS_FORNECEDOR = [
 ];
 
 /**
+ * Tipos de laudos / relatórios técnicos de fornecedores.
+ */
+const TIPOS_LAUDO = {
+  analise_agua:      { nome: 'Análise de Água',                  icone: '💧' },
+  analise_alimentos: { nome: 'Análise Microbiológica/Alimentos',  icone: '🥗' },
+  pcmso:             { nome: 'PCMSO (Saúde Ocupacional)',         icone: '⚕️' },
+  pgr:               { nome: 'PGR / PPRA (Riscos Ambientais)',    icone: '⚠️' },
+  calibracao:        { nome: 'Calibração de Equipamentos',        icone: '🔬' },
+  inspecao:          { nome: 'Laudo de Inspeção Técnica',         icone: '🔍' },
+  dedetizacao:       { nome: 'Laudo de Dedetização / Desratização', icone: '🪲' },
+  outros:            { nome: 'Outros',                            icone: '📋' },
+};
+
+const ORDEM_TIPOS_LAUDO = [
+  'analise_agua', 'analise_alimentos', 'pcmso', 'pgr',
+  'calibracao', 'inspecao', 'dedetizacao', 'outros',
+];
+
+/**
  * Modelos de checklist prontos, com listas oficiais/completas de exigências.
  * Podem ser escolhidos ao cadastrar uma licença ou aplicados depois, na ficha.
  * `arquivoRef` (opcional) aponta para o documento oficial guardado no projeto.

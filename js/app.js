@@ -1149,28 +1149,29 @@
   }
 
   function statusFornecedor(f) {
-    const docs = f.documentos || [];
-    if (!docs.length) return 'semvenc';
+    const itens = [...(f.documentos || []), ...(f.laudos || [])];
+    if (!itens.length) return 'semvenc';
     const ordem = ['vencida', 'breve', 'atencao', 'emdia', 'semvenc'];
-    const statuses = docs.map((d) => statusDocFornecedor(d));
+    const statuses = itens.map((d) => statusDocFornecedor(d));
     for (const s of ordem) { if (statuses.includes(s)) return s; }
     return 'semvenc';
   }
 
   function textoPrazoFornecedor(f) {
-    const docs = (f.documentos || []).filter((d) => d.dataVencimento);
-    if (!docs.length) return 'Sem licenças com vencimento';
-    const proxDoc = docs.slice().sort((a, b) => a.dataVencimento.localeCompare(b.dataVencimento))[0];
-    const dias = diasAteVencimento(proxDoc.dataVencimento);
-    if (dias < 0) return `Licença vencida há ${Math.abs(dias)} dia(s)`;
-    if (dias === 0) return 'Licença vence hoje';
-    return `Próx. venc.: ${fmtData(proxDoc.dataVencimento)}`;
+    const itens = [...(f.documentos || []), ...(f.laudos || [])].filter((d) => d.dataVencimento);
+    if (!itens.length) return 'Sem itens com vencimento';
+    const prox = itens.slice().sort((a, b) => a.dataVencimento.localeCompare(b.dataVencimento))[0];
+    const dias = diasAteVencimento(prox.dataVencimento);
+    if (dias < 0) return `Item vencido há ${Math.abs(dias)} dia(s)`;
+    if (dias === 0) return 'Item vence hoje';
+    return `Próx. venc.: ${fmtData(prox.dataVencimento)}`;
   }
 
   function cardFornecedor(f) {
     const st = statusFornecedor(f);
     const tipo = TIPOS_FORNECEDOR[f.tipoServico] || TIPOS_FORNECEDOR.outros;
     const nDocs = (f.documentos || []).length;
+    const nLaudos = (f.laudos || []).length;
     return `<div class="lic-card ${st}" data-fid="${f.id}">
       <div class="lic-icon">${tipo.icone}</div>
       <div class="lic-main">
@@ -1181,7 +1182,8 @@
           ${f.responsavel ? `<span>👤 ${esc(f.responsavel)}</span>` : ''}
         </div>
         <div class="mini-icons" style="margin-top:6px">
-          <span>📋 ${nDocs} licença(s)</span>
+          ${nDocs ? `<span>📋 ${nDocs} licença(s)</span>` : ''}
+          ${nLaudos ? `<span>🔬 ${nLaudos} laudo(s)</span>` : ''}
           ${f.telefone ? `<span>📞 ${esc(f.telefone)}</span>` : ''}
         </div>
       </div>
@@ -1303,9 +1305,15 @@
       ${f.observacoes ? `<div class="detail-item" style="margin-top:12px"><div class="k">Observações</div><div class="v" style="font-weight:400;white-space:pre-wrap">${esc(f.observacoes)}</div></div>` : ''}
 
       <div class="detail-section">
-        <h3>Licenças do fornecedor</h3>
+        <h3>📋 Licenças do fornecedor</h3>
         <div id="docs-forn-list"></div>
         <button class="btn btn-sm" id="btn-add-doc-forn" style="margin-top:10px">+ Adicionar licença</button>
+      </div>
+
+      <div class="detail-section">
+        <h3>🔬 Laudos e Relatórios Técnicos</h3>
+        <div id="laudos-forn-list"></div>
+        <button class="btn btn-sm" id="btn-add-laudo-forn" style="margin-top:10px">+ Adicionar laudo</button>
       </div>
 
       <div class="divider"></div>
@@ -1316,12 +1324,14 @@
     `);
 
     renderDocsFornecedor(f);
+    renderLaudosFornecedor(f);
 
     document.getElementById('btn-add-doc-forn').addEventListener('click', () => abrirFormDocFornecedor(f, -1));
+    document.getElementById('btn-add-laudo-forn').addEventListener('click', () => abrirFormLaudoFornecedor(f, -1));
     document.getElementById('edit-forn').addEventListener('click', () => abrirFormFornecedor(f));
     document.getElementById('del-forn').addEventListener('click', async () => {
       if (!confirm(`Excluir "${f.nome}"? Esta ação não pode ser desfeita.`)) return;
-      for (const doc of (f.documentos || [])) {
+      for (const doc of [...(f.documentos || []), ...(f.laudos || [])]) {
         for (const arq of (doc.arquivos || [])) {
           if (arq.storagePath) await DB.removerArquivo(arq.storagePath);
         }
@@ -1544,6 +1554,219 @@
     await DB.salvarFornecedor(f);
     await carregar();
     renderArquivosDoc(f, doc, docIdx);
+    if (ok) toast(`${ok} arquivo(s) enviado(s).`, 'ok');
+  }
+
+  // ---------------- Laudos do Fornecedor ----------------
+
+  function renderLaudosFornecedor(f) {
+    const wrap = document.getElementById('laudos-forn-list');
+    if (!wrap) return;
+    const laudos = f.laudos || [];
+    if (!laudos.length) {
+      wrap.innerHTML = '<p class="muted" style="font-size:14px">Nenhum laudo cadastrado.</p>';
+      return;
+    }
+    wrap.innerHTML = laudos.map((laudo, idx) => {
+      const st = statusDocFornecedor(laudo);
+      const tipoL = TIPOS_LAUDO[laudo.tipoLaudo] || TIPOS_LAUDO.outros;
+      return `<div class="lic-card ${st}" style="cursor:pointer" data-laudo-idx="${idx}">
+        <div class="lic-icon">${tipoL.icone}</div>
+        <div class="lic-main">
+          <div class="lic-title">${esc(laudo.nome)}</div>
+          <div class="lic-meta">
+            <span class="cat-tag" style="background:var(--cinza-bg);color:var(--cinza)">${tipoL.nome}</span>
+            ${laudo.laboratorio ? `<span>🏢 ${esc(laudo.laboratorio)}</span>` : ''}
+            ${laudo.numero ? `<span># ${esc(laudo.numero)}</span>` : ''}
+            ${(laudo.arquivos || []).length ? `<span>📎 ${laudo.arquivos.length} arquivo(s)</span>` : ''}
+          </div>
+          <div class="mini-icons" style="margin-top:6px">
+            ${laudo.dataEmissao ? `<span>📅 Emissão: ${fmtData(laudo.dataEmissao)}</span>` : ''}
+            <span>🗓️ Validade: ${fmtData(laudo.dataVencimento)}</span>
+          </div>
+        </div>
+        <div class="lic-right">
+          <span class="badge ${st}">${STATUS_LABEL[st]}</span>
+          <span class="lic-prazo muted">${laudo.dataVencimento ? textoPrazo({ dataVencimento: laudo.dataVencimento }) : 'Sem validade'}</span>
+        </div>
+      </div>`;
+    }).join('');
+    wrap.querySelectorAll('[data-laudo-idx]').forEach((c) =>
+      c.addEventListener('click', () => abrirFormLaudoFornecedor(f, parseInt(c.dataset.laudoIdx, 10))));
+  }
+
+  function abrirFormLaudoFornecedor(f, laudoIdx) {
+    const editando = laudoIdx >= 0;
+    const base = editando ? (f.laudos[laudoIdx] || {}) : {};
+    const laudo = { ...base, arquivos: [...(base.arquivos || [])] };
+    if (!editando) laudo.id = uid();
+
+    const opTipos = ORDEM_TIPOS_LAUDO.map((k) => {
+      const v = TIPOS_LAUDO[k];
+      return `<option value="${k}" ${laudo.tipoLaudo === k ? 'selected' : ''}>${v.icone} ${v.nome}</option>`;
+    }).join('');
+
+    abrirModal(editando ? 'Editar laudo' : 'Novo laudo', `
+      <form id="form-laudo-forn">
+        <div class="form-grid">
+          <div class="field full">
+            <label>Nome / Descrição do laudo *</label>
+            <input name="nome" required value="${esc(laudo.nome || '')}" placeholder="Ex.: Análise de Água — 1º Semestre 2026">
+          </div>
+          <div class="field">
+            <label>Tipo de laudo</label>
+            <select name="tipoLaudo"><option value="">Sem categoria</option>${opTipos}</select>
+          </div>
+          <div class="field">
+            <label>Número / Protocolo</label>
+            <input name="numero" value="${esc(laudo.numero || '')}" placeholder="Nº do laudo">
+          </div>
+          <div class="field">
+            <label>Laboratório / Empresa emissora</label>
+            <input name="laboratorio" value="${esc(laudo.laboratorio || '')}" placeholder="Ex.: Laboratório XYZ">
+          </div>
+          <div class="field">
+            <label>Data de emissão</label>
+            <input type="date" name="dataEmissao" value="${esc(laudo.dataEmissao || '')}">
+          </div>
+          <div class="field">
+            <label>Data de validade</label>
+            <input type="date" name="dataVencimento" value="${esc(laudo.dataVencimento || '')}">
+            <span class="hint">Deixe em branco se o laudo não tem validade definida.</span>
+          </div>
+          <div class="field full">
+            <label>Observações</label>
+            <textarea name="observacoes" placeholder="Resultados, conclusões, pendências...">${esc(laudo.observacoes || '')}</textarea>
+          </div>
+        </div>
+
+        ${editando ? `
+        <div class="detail-section">
+          <h3>Arquivo do laudo</h3>
+          <div class="file-list" id="file-list-laudo"></div>
+          <div class="dropzone" id="dropzone-laudo" style="margin-top:10px">
+            📤 Clique aqui ou arraste o laudo em PDF ou imagem
+            <input type="file" id="file-input-laudo" multiple hidden>
+          </div>
+        </div>` : ''}
+
+        <div class="form-actions">
+          <button type="button" class="btn" id="cancel-laudo-forn">${editando ? 'Voltar' : 'Cancelar'}</button>
+          ${editando ? `<button type="button" class="btn btn-danger" id="del-laudo-forn">🗑️ Excluir</button>` : ''}
+          <button type="submit" class="btn btn-primary">${editando ? 'Salvar alterações' : 'Adicionar laudo'}</button>
+        </div>
+      </form>
+    `);
+
+    if (editando) {
+      renderArquivosLaudo(f, laudo, laudoIdx);
+      const dz = document.getElementById('dropzone-laudo');
+      const fi = document.getElementById('file-input-laudo');
+      if (dz && fi) {
+        dz.addEventListener('click', () => fi.click());
+        fi.addEventListener('change', () => receberArquivosLaudo(f, laudo, laudoIdx, fi.files));
+        dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag'); });
+        dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+        dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('drag'); receberArquivosLaudo(f, laudo, laudoIdx, e.dataTransfer.files); });
+      }
+      document.getElementById('del-laudo-forn').addEventListener('click', async () => {
+        if (!confirm('Excluir este laudo e seus arquivos?')) return;
+        for (const arq of (laudo.arquivos || [])) {
+          if (arq.storagePath) await DB.removerArquivo(arq.storagePath);
+        }
+        f.laudos.splice(laudoIdx, 1);
+        f.atualizadoEm = new Date().toISOString();
+        await DB.salvarFornecedor(f);
+        await carregar();
+        toast('Laudo excluído.', '');
+        abrirDetalheFornecedor(f.id);
+      });
+    }
+
+    document.getElementById('cancel-laudo-forn').addEventListener('click', () => abrirDetalheFornecedor(f.id));
+    document.getElementById('form-laudo-forn').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      f.laudos = f.laudos || [];
+      if (editando) {
+        Object.assign(laudo, fd);
+        f.laudos[laudoIdx] = laudo;
+      } else {
+        f.laudos.push({ ...laudo, ...fd, criadoEm: new Date().toISOString() });
+      }
+      f.atualizadoEm = new Date().toISOString();
+      await DB.salvarFornecedor(f);
+      await carregar();
+      toast(editando ? 'Laudo atualizado.' : 'Laudo adicionado.', 'ok');
+      abrirDetalheFornecedor(f.id);
+    });
+  }
+
+  function renderArquivosLaudo(f, laudo, laudoIdx) {
+    const wrap = document.getElementById('file-list-laudo');
+    if (!wrap) return;
+    const arqs = laudo.arquivos || [];
+    wrap.innerHTML = arqs.map((a) => `
+      <div class="file-row">
+        <span class="fi">${iconeArquivo(a.tipo, a.nome)}</span>
+        <span class="fn" title="${esc(a.nome)}">${esc(a.nome)}</span>
+        <span class="fs">${fmtTamanho(a.tamanho || 0)}</span>
+        <button class="icon-btn btn-sm" data-vis="${a.id}" title="Visualizar" style="font-size:15px">👁️</button>
+        <button class="icon-btn btn-sm" data-ver="${a.id}" title="Baixar" style="font-size:15px">⬇️</button>
+        <button class="icon-btn btn-sm" data-rem="${a.id}" title="Remover" style="font-size:15px">🗑️</button>
+      </div>`).join('') || '<p class="muted" style="font-size:14px">Nenhum arquivo anexado.</p>';
+
+    wrap.querySelectorAll('[data-vis]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const meta = (laudo.arquivos || []).find((x) => x.id === b.dataset.vis);
+        if (!meta?.storagePath) return toast('Arquivo não encontrado no servidor.', 'err');
+        try { window.open(await DB.obterArquivoUrl(meta.storagePath), '_blank', 'noopener'); }
+        catch (err) { toast('Erro ao abrir arquivo: ' + err.message, 'err'); }
+      }));
+    wrap.querySelectorAll('[data-ver]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const meta = (laudo.arquivos || []).find((x) => x.id === b.dataset.ver);
+        if (!meta?.storagePath) return toast('Arquivo não encontrado no servidor.', 'err');
+        try {
+          const url = await DB.obterArquivoUrl(meta.storagePath);
+          const a = document.createElement('a');
+          a.href = url; a.download = meta.nome; a.target = '_blank';
+          document.body.appendChild(a); a.click(); a.remove();
+        } catch (err) { toast('Erro ao baixar arquivo: ' + err.message, 'err'); }
+      }));
+    wrap.querySelectorAll('[data-rem]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        if (!confirm('Remover este arquivo?')) return;
+        const meta = (laudo.arquivos || []).find((x) => x.id === b.dataset.rem);
+        if (meta?.storagePath) await DB.removerArquivo(meta.storagePath);
+        laudo.arquivos = (laudo.arquivos || []).filter((x) => x.id !== b.dataset.rem);
+        if (laudoIdx >= 0) f.laudos[laudoIdx] = laudo;
+        f.atualizadoEm = new Date().toISOString();
+        await DB.salvarFornecedor(f);
+        await carregar();
+        renderArquivosLaudo(f, laudo, laudoIdx);
+      }));
+  }
+
+  async function receberArquivosLaudo(f, laudo, laudoIdx, fileList) {
+    const arquivos = Array.from(fileList);
+    if (!arquivos.length) return;
+    laudo.arquivos = laudo.arquivos || [];
+    let ok = 0;
+    for (const file of arquivos) {
+      if (file.size > 50 * 1048576) { toast(`"${file.name}" é maior que 50 MB e foi ignorado.`, 'err'); continue; }
+      try {
+        const aid = uid();
+        const storagePath = await DB.salvarArquivo(aid, `fornecedores/${f.id}`, file);
+        laudo.arquivos.push({ id: aid, nome: file.name, tipo: file.type, tamanho: file.size, storagePath, adicionadoEm: new Date().toISOString() });
+        ok++;
+      } catch (err) { toast(`Erro ao enviar "${file.name}": ${err.message}`, 'err'); }
+    }
+    if (laudoIdx >= 0) f.laudos[laudoIdx] = laudo;
+    f.atualizadoEm = new Date().toISOString();
+    await DB.salvarFornecedor(f);
+    await carregar();
+    renderArquivosLaudo(f, laudo, laudoIdx);
     if (ok) toast(`${ok} arquivo(s) enviado(s).`, 'ok');
   }
 
