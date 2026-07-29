@@ -120,6 +120,26 @@ const ORDEM_TIPOS_MANUTENCAO = [
 ];
 
 /**
+ * Tipos de fornecedores / prestadores de serviço.
+ */
+const TIPOS_FORNECEDOR = {
+  alimentacao:  { nome: 'Alimentação / Merenda',        icone: '🍽️' },
+  dedetizacao:  { nome: 'Dedetização / Controle pragas', icone: '🪲' },
+  limpeza:      { nome: 'Limpeza e higienização',        icone: '🧹' },
+  seguranca:    { nome: 'Segurança / Vigilância',        icone: '🔐' },
+  manutencao:   { nome: 'Manutenção predial',            icone: '🔨' },
+  transporte:   { nome: 'Transporte escolar',            icone: '🚌' },
+  saude_ocup:   { nome: 'Saúde ocupacional',             icone: '⚕️' },
+  ti:           { nome: 'TI / Informática',              icone: '💻' },
+  outros:       { nome: 'Outros',                        icone: '🤝' },
+};
+
+const ORDEM_TIPOS_FORNECEDOR = [
+  'alimentacao', 'dedetizacao', 'limpeza', 'seguranca',
+  'manutencao', 'transporte', 'saude_ocup', 'ti', 'outros',
+];
+
+/**
  * Modelos de checklist prontos, com listas oficiais/completas de exigências.
  * Podem ser escolhidos ao cadastrar uma licença ou aplicados depois, na ficha.
  * `arquivoRef` (opcional) aponta para o documento oficial guardado no projeto.

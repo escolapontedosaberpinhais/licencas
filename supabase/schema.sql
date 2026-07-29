@@ -15,14 +15,24 @@ create table if not exists public.manutencoes (
   data jsonb not null default '{}'::jsonb
 );
 
+-- 3. Tabela de fornecedores / prestadores
+create table if not exists public.fornecedores (
+  id   text primary key,
+  data jsonb not null default '{}'::jsonb
+);
+
 -- 3. Row Level Security — apenas usuários autenticados acessam
 alter table public.licencas    enable row level security;
 alter table public.manutencoes enable row level security;
+alter table public.fornecedores enable row level security;
 
 create policy "acesso_autenticados" on public.licencas
   for all to authenticated using (true) with check (true);
 
 create policy "acesso_autenticados" on public.manutencoes
+  for all to authenticated using (true) with check (true);
+
+create policy "acesso_autenticados" on public.fornecedores
   for all to authenticated using (true) with check (true);
 
 -- 4. Bucket de arquivos (50 MB por arquivo, qualquer tipo)

@@ -17,6 +17,7 @@
     statusFiltro: 'todos',
     licencas: [],
     manutencoes: [],
+    fornecedores: [],
   };
 
   // ---------------- Utilidades ----------------
@@ -109,9 +110,10 @@
   }
 
   async function carregar() {
-    [estado.licencas, estado.manutencoes] = await Promise.all([
+    [estado.licencas, estado.manutencoes, estado.fornecedores] = await Promise.all([
       DB.listarLicencas(),
       DB.listarManutencoes(),
+      DB.listarFornecedores(),
     ]);
   }
 
@@ -119,10 +121,11 @@
   function render() {
     document.querySelectorAll('.nav-link').forEach((b) =>
       b.classList.toggle('active', b.dataset.view === estado.view));
-    document.getElementById('btn-nova-licenca').hidden = estado.view === 'manutencoes';
+    document.getElementById('btn-nova-licenca').hidden = estado.view === 'manutencoes' || estado.view === 'fornecedores';
     if (estado.view === 'dashboard') renderDashboard();
     else if (estado.view === 'licencas') renderLista();
     else if (estado.view === 'manutencoes') renderManutencoes();
+    else if (estado.view === 'fornecedores') renderFornecedores();
     else if (estado.view === 'config') renderConfig();
   }
 
@@ -143,6 +146,9 @@
     const manutAlerts = estado.manutencoes
       .filter((m) => ['vencida', 'breve'].includes(statusManutencao(m)))
       .sort((a, b) => (a.dataProxima || '').localeCompare(b.dataProxima || ''));
+
+    const fornAlerts = estado.fornecedores
+      .filter((f) => ['vencida', 'breve'].includes(statusFornecedor(f)));
 
     main.innerHTML = `
       <div class="page-head">
@@ -182,6 +188,12 @@
         <h3>🔧 Manutenções que requerem ação</h3>
         <div class="lic-list">${manutAlerts.map(cardManutencao).join('')}</div>
       </div>` : ''}
+
+      ${fornAlerts.length ? `
+      <div class="detail-section">
+        <h3>🤝 Fornecedores com documentos a vencer</h3>
+        <div class="lic-list">${fornAlerts.map(cardFornecedor).join('')}</div>
+      </div>` : ''}
     `;
 
     main.querySelectorAll('[data-stat]').forEach((el) => {
@@ -194,6 +206,7 @@
     });
     ligarCardsLicenca();
     ligarCardsManutencao();
+    ligarCardsFornecedor();
   }
 
   function statCard(cls, num, lbl) {
@@ -1107,6 +1120,394 @@
     });
   }
 
+  // ---------------- Fornecedores ----------------
+
+  function statusDocFornecedor(doc) {
+    const dias = diasAteVencimento(doc.dataVencimento);
+    if (dias === null) return 'semvenc';
+    if (dias < 0) return 'vencida';
+    if (dias <= DIAS_BREVE) return 'breve';
+    if (dias <= DIAS_ATENCAO) return 'atencao';
+    return 'emdia';
+  }
+
+  function statusFornecedor(f) {
+    const docs = f.documentos || [];
+    if (!docs.length) return 'semvenc';
+    const ordem = ['vencida', 'breve', 'atencao', 'emdia', 'semvenc'];
+    const statuses = docs.map((d) => statusDocFornecedor(d));
+    for (const s of ordem) { if (statuses.includes(s)) return s; }
+    return 'semvenc';
+  }
+
+  function textoPrazoFornecedor(f) {
+    const docs = (f.documentos || []).filter((d) => d.dataVencimento);
+    if (!docs.length) return 'Sem documentos com vencimento';
+    const proxDoc = docs.slice().sort((a, b) => a.dataVencimento.localeCompare(b.dataVencimento))[0];
+    const dias = diasAteVencimento(proxDoc.dataVencimento);
+    if (dias < 0) return `Doc. vencido há ${Math.abs(dias)} dia(s)`;
+    if (dias === 0) return 'Documento vence hoje';
+    return `Próx. venc.: ${fmtData(proxDoc.dataVencimento)}`;
+  }
+
+  function cardFornecedor(f) {
+    const st = statusFornecedor(f);
+    const tipo = TIPOS_FORNECEDOR[f.tipoServico] || TIPOS_FORNECEDOR.outros;
+    const nDocs = (f.documentos || []).length;
+    return `<div class="lic-card ${st}" data-fid="${f.id}">
+      <div class="lic-icon">${tipo.icone}</div>
+      <div class="lic-main">
+        <div class="lic-title">${esc(f.nome)}</div>
+        <div class="lic-meta">
+          <span class="cat-tag" style="background:var(--cinza-bg);color:var(--cinza)">${tipo.nome}</span>
+          ${f.cnpj ? `<span>CNPJ: ${esc(f.cnpj)}</span>` : ''}
+          ${f.responsavel ? `<span>👤 ${esc(f.responsavel)}</span>` : ''}
+        </div>
+        <div class="mini-icons" style="margin-top:6px">
+          <span>📄 ${nDocs} documento(s)</span>
+          ${f.telefone ? `<span>📞 ${esc(f.telefone)}</span>` : ''}
+        </div>
+      </div>
+      <div class="lic-right">
+        <span class="badge ${st}">${STATUS_LABEL[st]}</span>
+        <span class="lic-prazo muted">${textoPrazoFornecedor(f)}</span>
+      </div>
+    </div>`;
+  }
+
+  function ligarCardsFornecedor() {
+    main.querySelectorAll('[data-fid]').forEach((c) =>
+      c.addEventListener('click', () => abrirDetalheFornecedor(c.dataset.fid)));
+  }
+
+  function renderFornecedores() {
+    const forns = estado.fornecedores.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    main.innerHTML = `
+      <div class="page-head">
+        <div><h1>Fornecedores / Prestadores</h1><p>${forns.length} fornecedor(es) cadastrado(s).</p></div>
+        <button class="btn btn-primary" id="btn-novo-forn-page">+ Novo fornecedor</button>
+      </div>
+      ${forns.length ? `<div class="lic-list">${forns.map(cardFornecedor).join('')}</div>` : `
+        <div class="empty">
+          <div class="em-icon">🤝</div>
+          <h3>Nenhum fornecedor cadastrado</h3>
+          <p>Cadastre empresas e prestadores de serviços da escola.</p>
+        </div>`}
+    `;
+    document.getElementById('btn-novo-forn-page').addEventListener('click', () => abrirFormFornecedor(null));
+    ligarCardsFornecedor();
+  }
+
+  function abrirFormFornecedor(fornecedor) {
+    const editando = !!fornecedor;
+    const f = fornecedor || { tipoServico: 'outros', documentos: [] };
+    const opTipos = ORDEM_TIPOS_FORNECEDOR.map((k) => {
+      const v = TIPOS_FORNECEDOR[k];
+      return `<option value="${k}" ${f.tipoServico === k ? 'selected' : ''}>${v.icone} ${v.nome}</option>`;
+    }).join('');
+
+    abrirModal(editando ? 'Editar fornecedor' : 'Novo fornecedor', `
+      <form id="form-forn">
+        <div class="form-grid">
+          <div class="field full">
+            <label>Nome da empresa / prestador *</label>
+            <input name="nome" required value="${esc(f.nome || '')}" placeholder="Ex.: Dedetizadora São Paulo Ltda">
+          </div>
+          <div class="field">
+            <label>Tipo de serviço *</label>
+            <select name="tipoServico">${opTipos}</select>
+          </div>
+          <div class="field">
+            <label>CNPJ / CPF</label>
+            <input name="cnpj" value="${esc(f.cnpj || '')}" placeholder="00.000.000/0001-00">
+          </div>
+          <div class="field">
+            <label>Responsável / Contato</label>
+            <input name="responsavel" value="${esc(f.responsavel || '')}" placeholder="Nome do responsável">
+          </div>
+          <div class="field">
+            <label>Telefone</label>
+            <input name="telefone" value="${esc(f.telefone || '')}" placeholder="(41) 99999-9999">
+          </div>
+          <div class="field">
+            <label>E-mail</label>
+            <input name="email" type="email" value="${esc(f.email || '')}" placeholder="contato@empresa.com">
+          </div>
+          <div class="field full">
+            <label>Observações</label>
+            <textarea name="observacoes" placeholder="Anotações, condições de contrato, histórico...">${esc(f.observacoes || '')}</textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" id="cancel-forn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">${editando ? 'Salvar alterações' : 'Cadastrar fornecedor'}</button>
+        </div>
+      </form>
+    `);
+
+    document.getElementById('cancel-forn').addEventListener('click', fecharModal);
+    document.getElementById('form-forn').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      const agora = new Date().toISOString();
+      if (editando) {
+        Object.assign(f, fd, { atualizadoEm: agora });
+        await DB.salvarFornecedor(f);
+        toast('Fornecedor atualizado.', 'ok');
+      } else {
+        const novo = { id: uid(), ...fd, documentos: [], criadoEm: agora, atualizadoEm: agora };
+        await DB.salvarFornecedor(novo);
+        toast('Fornecedor cadastrado.', 'ok');
+      }
+      await carregar();
+      fecharModal();
+      if (editando) abrirDetalheFornecedor(f.id); else renderFornecedores();
+    });
+  }
+
+  async function abrirDetalheFornecedor(id) {
+    const f = await DB.obterFornecedor(id);
+    if (!f) return;
+    const st = statusFornecedor(f);
+    const tipo = TIPOS_FORNECEDOR[f.tipoServico] || TIPOS_FORNECEDOR.outros;
+
+    abrirModal(`${tipo.icone} ${f.nome}`, `
+      <div class="tags-line" style="margin-bottom:14px">
+        <span class="cat-tag" style="background:var(--cinza-bg);color:var(--cinza)">${tipo.nome}</span>
+        <span class="badge ${st}">${STATUS_LABEL[st]}</span>
+      </div>
+
+      <div class="detail-grid">
+        ${f.cnpj ? `<div class="detail-item"><div class="k">CNPJ / CPF</div><div class="v">${esc(f.cnpj)}</div></div>` : ''}
+        ${f.responsavel ? `<div class="detail-item"><div class="k">Responsável</div><div class="v">${esc(f.responsavel)}</div></div>` : ''}
+        ${f.telefone ? `<div class="detail-item"><div class="k">Telefone</div><div class="v">${esc(f.telefone)}</div></div>` : ''}
+        ${f.email ? `<div class="detail-item"><div class="k">E-mail</div><div class="v">${esc(f.email)}</div></div>` : ''}
+      </div>
+      ${f.observacoes ? `<div class="detail-item" style="margin-top:12px"><div class="k">Observações</div><div class="v" style="font-weight:400;white-space:pre-wrap">${esc(f.observacoes)}</div></div>` : ''}
+
+      <div class="detail-section">
+        <h3>Licenças / Documentos do fornecedor</h3>
+        <div id="docs-forn-list"></div>
+        <button class="btn btn-sm" id="btn-add-doc-forn" style="margin-top:10px">+ Adicionar documento</button>
+      </div>
+
+      <div class="divider"></div>
+      <div class="form-actions" style="justify-content:space-between">
+        <button class="btn btn-danger" id="del-forn">🗑️ Excluir</button>
+        <button class="btn btn-primary" id="edit-forn">✏️ Editar</button>
+      </div>
+    `);
+
+    renderDocsFornecedor(f);
+
+    document.getElementById('btn-add-doc-forn').addEventListener('click', () => abrirFormDocFornecedor(f, -1));
+    document.getElementById('edit-forn').addEventListener('click', () => abrirFormFornecedor(f));
+    document.getElementById('del-forn').addEventListener('click', async () => {
+      if (!confirm(`Excluir "${f.nome}"? Esta ação não pode ser desfeita.`)) return;
+      for (const doc of (f.documentos || [])) {
+        for (const arq of (doc.arquivos || [])) {
+          if (arq.storagePath) await DB.removerArquivo(arq.storagePath);
+        }
+      }
+      await DB.removerFornecedor(f.id);
+      await carregar();
+      fecharModal();
+      renderFornecedores();
+      toast('Fornecedor excluído.', '');
+    });
+  }
+
+  function renderDocsFornecedor(f) {
+    const wrap = document.getElementById('docs-forn-list');
+    if (!wrap) return;
+    const docs = f.documentos || [];
+    if (!docs.length) {
+      wrap.innerHTML = '<p class="muted" style="font-size:14px">Nenhum documento cadastrado.</p>';
+      return;
+    }
+    wrap.innerHTML = docs.map((doc, idx) => {
+      const st = statusDocFornecedor(doc);
+      return `<div class="lic-card ${st}" style="cursor:pointer" data-doc-idx="${idx}">
+        <div class="lic-icon">📄</div>
+        <div class="lic-main">
+          <div class="lic-title">${esc(doc.nome)}</div>
+          <div class="lic-meta">
+            ${doc.orgaoEmissor ? `<span>🏢 ${esc(doc.orgaoEmissor)}</span>` : ''}
+            ${doc.numero ? `<span># ${esc(doc.numero)}</span>` : ''}
+            ${(doc.arquivos || []).length ? `<span>📎 ${doc.arquivos.length} arquivo(s)</span>` : ''}
+          </div>
+          <div class="mini-icons" style="margin-top:6px">
+            ${doc.dataEmissao ? `<span>📅 Emissão: ${fmtData(doc.dataEmissao)}</span>` : ''}
+            <span>🗓️ Vence: ${fmtData(doc.dataVencimento)}</span>
+          </div>
+        </div>
+        <div class="lic-right">
+          <span class="badge ${st}">${STATUS_LABEL[st]}</span>
+          <span class="lic-prazo muted">${doc.dataVencimento ? textoPrazo({ dataVencimento: doc.dataVencimento }) : 'Sem vencimento'}</span>
+        </div>
+      </div>`;
+    }).join('');
+    wrap.querySelectorAll('[data-doc-idx]').forEach((c) =>
+      c.addEventListener('click', () => abrirFormDocFornecedor(f, parseInt(c.dataset.docIdx, 10))));
+  }
+
+  function abrirFormDocFornecedor(f, docIdx) {
+    const editando = docIdx >= 0;
+    const docBase = editando ? (f.documentos[docIdx] || {}) : {};
+    const doc = { ...docBase, arquivos: [...(docBase.arquivos || [])] };
+    if (!editando) doc.id = uid();
+
+    abrirModal(editando ? 'Editar documento' : 'Novo documento', `
+      <form id="form-doc-forn">
+        <div class="form-grid">
+          <div class="field full">
+            <label>Nome do documento *</label>
+            <input name="nome" required value="${esc(doc.nome || '')}" placeholder="Ex.: Licença de Dedetização 2026">
+          </div>
+          <div class="field">
+            <label>Número / Protocolo</label>
+            <input name="numero" value="${esc(doc.numero || '')}" placeholder="Nº do documento">
+          </div>
+          <div class="field">
+            <label>Órgão emissor</label>
+            <input name="orgaoEmissor" value="${esc(doc.orgaoEmissor || '')}" placeholder="Ex.: Vigilância Sanitária">
+          </div>
+          <div class="field">
+            <label>Data de emissão</label>
+            <input type="date" name="dataEmissao" value="${esc(doc.dataEmissao || '')}">
+          </div>
+          <div class="field">
+            <label>Data de vencimento</label>
+            <input type="date" name="dataVencimento" value="${esc(doc.dataVencimento || '')}">
+          </div>
+          <div class="field full">
+            <label>Observações</label>
+            <textarea name="observacoes" placeholder="Anotações sobre este documento...">${esc(doc.observacoes || '')}</textarea>
+          </div>
+        </div>
+
+        ${editando ? `
+        <div class="detail-section">
+          <h3>Arquivos do documento</h3>
+          <div class="file-list" id="file-list-doc"></div>
+          <div class="dropzone" id="dropzone-doc" style="margin-top:10px">
+            📤 Clique aqui ou arraste arquivos (PDF, imagens, etc.)
+            <input type="file" id="file-input-doc" multiple hidden>
+          </div>
+        </div>` : ''}
+
+        <div class="form-actions">
+          <button type="button" class="btn" id="cancel-doc-forn">${editando ? 'Voltar' : 'Cancelar'}</button>
+          ${editando ? `<button type="button" class="btn btn-danger" id="del-doc-forn">🗑️ Excluir</button>` : ''}
+          <button type="submit" class="btn btn-primary">${editando ? 'Salvar alterações' : 'Adicionar documento'}</button>
+        </div>
+      </form>
+    `);
+
+    if (editando) {
+      renderArquivosDoc(f, doc, docIdx);
+      const dz = document.getElementById('dropzone-doc');
+      const fi = document.getElementById('file-input-doc');
+      if (dz && fi) {
+        dz.addEventListener('click', () => fi.click());
+        fi.addEventListener('change', () => receberArquivosDoc(f, doc, docIdx, fi.files));
+        dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag'); });
+        dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+        dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('drag'); receberArquivosDoc(f, doc, docIdx, e.dataTransfer.files); });
+      }
+      document.getElementById('del-doc-forn').addEventListener('click', async () => {
+        if (!confirm('Excluir este documento e seus arquivos?')) return;
+        for (const arq of (doc.arquivos || [])) {
+          if (arq.storagePath) await DB.removerArquivo(arq.storagePath);
+        }
+        f.documentos.splice(docIdx, 1);
+        f.atualizadoEm = new Date().toISOString();
+        await DB.salvarFornecedor(f);
+        await carregar();
+        toast('Documento excluído.', '');
+        abrirDetalheFornecedor(f.id);
+      });
+    }
+
+    document.getElementById('cancel-doc-forn').addEventListener('click', () => abrirDetalheFornecedor(f.id));
+    document.getElementById('form-doc-forn').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      f.documentos = f.documentos || [];
+      if (editando) {
+        Object.assign(doc, fd);
+        f.documentos[docIdx] = doc;
+      } else {
+        f.documentos.push({ ...doc, ...fd, criadoEm: new Date().toISOString() });
+      }
+      f.atualizadoEm = new Date().toISOString();
+      await DB.salvarFornecedor(f);
+      await carregar();
+      toast(editando ? 'Documento atualizado.' : 'Documento adicionado.', 'ok');
+      abrirDetalheFornecedor(f.id);
+    });
+  }
+
+  function renderArquivosDoc(f, doc, docIdx) {
+    const wrap = document.getElementById('file-list-doc');
+    if (!wrap) return;
+    const arqs = doc.arquivos || [];
+    wrap.innerHTML = arqs.map((a) => `
+      <div class="file-row">
+        <span class="fi">${iconeArquivo(a.tipo, a.nome)}</span>
+        <span class="fn" title="${esc(a.nome)}">${esc(a.nome)}</span>
+        <span class="fs">${fmtTamanho(a.tamanho || 0)}</span>
+        <button class="icon-btn btn-sm" data-ver="${a.id}" title="Abrir/baixar" style="font-size:15px">⬇️</button>
+        <button class="icon-btn btn-sm" data-rem="${a.id}" title="Remover" style="font-size:15px">🗑️</button>
+      </div>`).join('') || '<p class="muted" style="font-size:14px">Nenhum arquivo anexado.</p>';
+
+    wrap.querySelectorAll('[data-ver]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const meta = (doc.arquivos || []).find((x) => x.id === b.dataset.ver);
+        if (!meta?.storagePath) return toast('Arquivo não encontrado no servidor.', 'err');
+        try {
+          const url = await DB.obterArquivoUrl(meta.storagePath);
+          const a = document.createElement('a');
+          a.href = url; a.download = meta.nome; a.target = '_blank';
+          document.body.appendChild(a); a.click(); a.remove();
+        } catch (err) { toast('Erro ao abrir arquivo: ' + err.message, 'err'); }
+      }));
+    wrap.querySelectorAll('[data-rem]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        if (!confirm('Remover este arquivo?')) return;
+        const meta = (doc.arquivos || []).find((x) => x.id === b.dataset.rem);
+        if (meta?.storagePath) await DB.removerArquivo(meta.storagePath);
+        doc.arquivos = (doc.arquivos || []).filter((x) => x.id !== b.dataset.rem);
+        if (docIdx >= 0) f.documentos[docIdx] = doc;
+        f.atualizadoEm = new Date().toISOString();
+        await DB.salvarFornecedor(f);
+        await carregar();
+        renderArquivosDoc(f, doc, docIdx);
+      }));
+  }
+
+  async function receberArquivosDoc(f, doc, docIdx, fileList) {
+    const arquivos = Array.from(fileList);
+    if (!arquivos.length) return;
+    doc.arquivos = doc.arquivos || [];
+    let ok = 0;
+    for (const file of arquivos) {
+      if (file.size > 50 * 1048576) { toast(`"${file.name}" é maior que 50 MB e foi ignorado.`, 'err'); continue; }
+      try {
+        const aid = uid();
+        const storagePath = await DB.salvarArquivo(aid, `fornecedores/${f.id}`, file);
+        doc.arquivos.push({ id: aid, nome: file.name, tipo: file.type, tamanho: file.size, storagePath, adicionadoEm: new Date().toISOString() });
+        ok++;
+      } catch (err) { toast(`Erro ao enviar "${file.name}": ${err.message}`, 'err'); }
+    }
+    if (docIdx >= 0) f.documentos[docIdx] = doc;
+    f.atualizadoEm = new Date().toISOString();
+    await DB.salvarFornecedor(f);
+    await carregar();
+    renderArquivosDoc(f, doc, docIdx);
+    if (ok) toast(`${ok} arquivo(s) enviado(s).`, 'ok');
+  }
+
   // ---------------- Navegação ----------------
   document.querySelectorAll('.nav-link').forEach((b) =>
     b.addEventListener('click', () => {
@@ -1130,6 +1531,7 @@
     main.innerHTML = '';
     estado.licencas = [];
     estado.manutencoes = [];
+    estado.fornecedores = [];
   }
 
   // Toggle senha no login

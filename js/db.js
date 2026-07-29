@@ -85,24 +85,47 @@ const DB = (() => {
     if (error) throw error;
   }
 
+  // ---------- Fornecedores ----------
+  async function listarFornecedores() {
+    const { data, error } = await sb.from('fornecedores').select('data');
+    if (error) throw error;
+    return (data || []).map(r => r.data);
+  }
+  async function obterFornecedor(id) {
+    const { data, error } = await sb.from('fornecedores').select('data').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data?.data ?? null;
+  }
+  async function salvarFornecedor(f) {
+    const { error } = await sb.from('fornecedores').upsert({ id: f.id, data: f }, { onConflict: 'id' });
+    if (error) throw error;
+  }
+  async function removerFornecedor(id) {
+    const { error } = await sb.from('fornecedores').delete().eq('id', id);
+    if (error) throw error;
+  }
+
   // ---------- Backup ----------
   async function exportarTudo() {
-    const [licencas, manutencoes] = await Promise.all([listarLicencas(), listarManutencoes()]);
+    const [licencas, manutencoes, fornecedores] = await Promise.all([listarLicencas(), listarManutencoes(), listarFornecedores()]);
     return {
       app: 'ponte-licencas',
-      versao: 3,
+      versao: 4,
       exportadoEm: new Date().toISOString(),
       licencas,
       manutencoes,
+      fornecedores,
     };
   }
   async function importarTudo(dados, { substituir }) {
     if (substituir) {
       await sb.from('licencas').delete().gte('id', '');
       await sb.from('manutencoes').delete().gte('id', '');
+      await sb.from('fornecedores').delete().gte('id', '');
     }
     for (const lic of (dados.licencas || [])) await salvarLicenca(lic);
     for (const m of (dados.manutencoes || [])) await salvarManutencao(m);
+    for (const f of (dados.fornecedores || [])) await salvarFornecedor(f);
   }
 
   return {
@@ -110,6 +133,7 @@ const DB = (() => {
     listarLicencas, obterLicenca, salvarLicenca, removerLicenca,
     salvarArquivo, obterArquivoUrl, removerArquivo,
     listarManutencoes, obterManutencao, salvarManutencao, removerManutencao,
+    listarFornecedores, obterFornecedor, salvarFornecedor, removerFornecedor,
     exportarTudo, importarTudo,
   };
 })();
