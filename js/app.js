@@ -705,10 +705,20 @@
         <span class="fi">${iconeArquivo(a.tipo, a.nome)}</span>
         <span class="fn" title="${esc(a.nome)}">${esc(a.nome)}</span>
         <span class="fs">${fmtTamanho(a.tamanho || 0)}</span>
-        <button class="icon-btn btn-sm" data-ver="${a.id}" title="Abrir/baixar" style="font-size:15px">⬇️</button>
+        <button class="icon-btn btn-sm" data-vis="${a.id}" title="Visualizar" style="font-size:15px">👁️</button>
+        <button class="icon-btn btn-sm" data-ver="${a.id}" title="Baixar" style="font-size:15px">⬇️</button>
         <button class="icon-btn btn-sm" data-rem="${a.id}" title="Remover" style="font-size:15px">🗑️</button>
       </div>`).join('') || '<p class="muted" style="font-size:14px">Nenhum arquivo anexado.</p>';
 
+    wrap.querySelectorAll('[data-vis]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const meta = (l.arquivos || []).find((x) => x.id === b.dataset.vis);
+        if (!meta?.storagePath) return toast('Arquivo não encontrado no servidor.', 'err');
+        try {
+          const url = await DB.obterArquivoUrl(meta.storagePath);
+          window.open(url, '_blank', 'noopener');
+        } catch (err) { toast('Erro ao abrir arquivo: ' + err.message, 'err'); }
+      }));
     wrap.querySelectorAll('[data-ver]').forEach((b) =>
       b.addEventListener('click', async () => {
         const meta = (l.arquivos || []).find((x) => x.id === b.dataset.ver);
@@ -1142,11 +1152,11 @@
 
   function textoPrazoFornecedor(f) {
     const docs = (f.documentos || []).filter((d) => d.dataVencimento);
-    if (!docs.length) return 'Sem documentos com vencimento';
+    if (!docs.length) return 'Sem licenças com vencimento';
     const proxDoc = docs.slice().sort((a, b) => a.dataVencimento.localeCompare(b.dataVencimento))[0];
     const dias = diasAteVencimento(proxDoc.dataVencimento);
-    if (dias < 0) return `Doc. vencido há ${Math.abs(dias)} dia(s)`;
-    if (dias === 0) return 'Documento vence hoje';
+    if (dias < 0) return `Licença vencida há ${Math.abs(dias)} dia(s)`;
+    if (dias === 0) return 'Licença vence hoje';
     return `Próx. venc.: ${fmtData(proxDoc.dataVencimento)}`;
   }
 
@@ -1164,7 +1174,7 @@
           ${f.responsavel ? `<span>👤 ${esc(f.responsavel)}</span>` : ''}
         </div>
         <div class="mini-icons" style="margin-top:6px">
-          <span>📄 ${nDocs} documento(s)</span>
+          <span>📋 ${nDocs} licença(s)</span>
           ${f.telefone ? `<span>📞 ${esc(f.telefone)}</span>` : ''}
         </div>
       </div>
@@ -1286,9 +1296,9 @@
       ${f.observacoes ? `<div class="detail-item" style="margin-top:12px"><div class="k">Observações</div><div class="v" style="font-weight:400;white-space:pre-wrap">${esc(f.observacoes)}</div></div>` : ''}
 
       <div class="detail-section">
-        <h3>Licenças / Documentos do fornecedor</h3>
+        <h3>Licenças do fornecedor</h3>
         <div id="docs-forn-list"></div>
-        <button class="btn btn-sm" id="btn-add-doc-forn" style="margin-top:10px">+ Adicionar documento</button>
+        <button class="btn btn-sm" id="btn-add-doc-forn" style="margin-top:10px">+ Adicionar licença</button>
       </div>
 
       <div class="divider"></div>
@@ -1322,16 +1332,18 @@
     if (!wrap) return;
     const docs = f.documentos || [];
     if (!docs.length) {
-      wrap.innerHTML = '<p class="muted" style="font-size:14px">Nenhum documento cadastrado.</p>';
+      wrap.innerHTML = '<p class="muted" style="font-size:14px">Nenhuma licença cadastrada.</p>';
       return;
     }
     wrap.innerHTML = docs.map((doc, idx) => {
       const st = statusDocFornecedor(doc);
+      const cat = doc.tipoLicenca ? (CATEGORIAS[doc.tipoLicenca] || CATEGORIAS.outros) : null;
       return `<div class="lic-card ${st}" style="cursor:pointer" data-doc-idx="${idx}">
-        <div class="lic-icon">📄</div>
+        <div class="lic-icon">${cat ? cat.icone : '📋'}</div>
         <div class="lic-main">
           <div class="lic-title">${esc(doc.nome)}</div>
           <div class="lic-meta">
+            ${cat ? `<span class="cat-tag" style="background:${cat.corBg};color:${cat.cor}">${cat.nome}</span>` : ''}
             ${doc.orgaoEmissor ? `<span>🏢 ${esc(doc.orgaoEmissor)}</span>` : ''}
             ${doc.numero ? `<span># ${esc(doc.numero)}</span>` : ''}
             ${(doc.arquivos || []).length ? `<span>📎 ${doc.arquivos.length} arquivo(s)</span>` : ''}
@@ -1357,12 +1369,22 @@
     const doc = { ...docBase, arquivos: [...(docBase.arquivos || [])] };
     if (!editando) doc.id = uid();
 
-    abrirModal(editando ? 'Editar documento' : 'Novo documento', `
+    const opTipoLic = `<option value="">Nenhuma categoria</option>` +
+      ORDEM_CATEGORIAS.map((c) => {
+        const cat = CATEGORIAS[c];
+        return `<option value="${c}" ${doc.tipoLicenca === c ? 'selected' : ''}>${cat.icone} ${cat.nome}</option>`;
+      }).join('');
+
+    abrirModal(editando ? 'Editar licença' : 'Nova licença', `
       <form id="form-doc-forn">
         <div class="form-grid">
           <div class="field full">
-            <label>Nome do documento *</label>
-            <input name="nome" required value="${esc(doc.nome || '')}" placeholder="Ex.: Licença de Dedetização 2026">
+            <label>Nome / Descrição da licença *</label>
+            <input name="nome" required value="${esc(doc.nome || '')}" placeholder="Ex.: Licença Sanitária 2026">
+          </div>
+          <div class="field">
+            <label>Tipo de licença</label>
+            <select name="tipoLicenca">${opTipoLic}</select>
           </div>
           <div class="field">
             <label>Número / Protocolo</label>
@@ -1382,16 +1404,16 @@
           </div>
           <div class="field full">
             <label>Observações</label>
-            <textarea name="observacoes" placeholder="Anotações sobre este documento...">${esc(doc.observacoes || '')}</textarea>
+            <textarea name="observacoes" placeholder="Anotações sobre esta licença...">${esc(doc.observacoes || '')}</textarea>
           </div>
         </div>
 
         ${editando ? `
         <div class="detail-section">
-          <h3>Arquivos do documento</h3>
+          <h3>Arquivo da licença</h3>
           <div class="file-list" id="file-list-doc"></div>
           <div class="dropzone" id="dropzone-doc" style="margin-top:10px">
-            📤 Clique aqui ou arraste arquivos (PDF, imagens, etc.)
+            📤 Clique aqui ou arraste o arquivo da licença (PDF, imagem, etc.)
             <input type="file" id="file-input-doc" multiple hidden>
           </div>
         </div>` : ''}
@@ -1399,7 +1421,7 @@
         <div class="form-actions">
           <button type="button" class="btn" id="cancel-doc-forn">${editando ? 'Voltar' : 'Cancelar'}</button>
           ${editando ? `<button type="button" class="btn btn-danger" id="del-doc-forn">🗑️ Excluir</button>` : ''}
-          <button type="submit" class="btn btn-primary">${editando ? 'Salvar alterações' : 'Adicionar documento'}</button>
+          <button type="submit" class="btn btn-primary">${editando ? 'Salvar alterações' : 'Adicionar licença'}</button>
         </div>
       </form>
     `);
@@ -1416,7 +1438,7 @@
         dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('drag'); receberArquivosDoc(f, doc, docIdx, e.dataTransfer.files); });
       }
       document.getElementById('del-doc-forn').addEventListener('click', async () => {
-        if (!confirm('Excluir este documento e seus arquivos?')) return;
+        if (!confirm('Excluir esta licença e seus arquivos?')) return;
         for (const arq of (doc.arquivos || [])) {
           if (arq.storagePath) await DB.removerArquivo(arq.storagePath);
         }
@@ -1424,7 +1446,7 @@
         f.atualizadoEm = new Date().toISOString();
         await DB.salvarFornecedor(f);
         await carregar();
-        toast('Documento excluído.', '');
+        toast('Licença excluída.', '');
         abrirDetalheFornecedor(f.id);
       });
     }
@@ -1443,7 +1465,7 @@
       f.atualizadoEm = new Date().toISOString();
       await DB.salvarFornecedor(f);
       await carregar();
-      toast(editando ? 'Documento atualizado.' : 'Documento adicionado.', 'ok');
+      toast(editando ? 'Licença atualizada.' : 'Licença adicionada.', 'ok');
       abrirDetalheFornecedor(f.id);
     });
   }
@@ -1457,10 +1479,20 @@
         <span class="fi">${iconeArquivo(a.tipo, a.nome)}</span>
         <span class="fn" title="${esc(a.nome)}">${esc(a.nome)}</span>
         <span class="fs">${fmtTamanho(a.tamanho || 0)}</span>
-        <button class="icon-btn btn-sm" data-ver="${a.id}" title="Abrir/baixar" style="font-size:15px">⬇️</button>
+        <button class="icon-btn btn-sm" data-vis="${a.id}" title="Visualizar" style="font-size:15px">👁️</button>
+        <button class="icon-btn btn-sm" data-ver="${a.id}" title="Baixar" style="font-size:15px">⬇️</button>
         <button class="icon-btn btn-sm" data-rem="${a.id}" title="Remover" style="font-size:15px">🗑️</button>
       </div>`).join('') || '<p class="muted" style="font-size:14px">Nenhum arquivo anexado.</p>';
 
+    wrap.querySelectorAll('[data-vis]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const meta = (doc.arquivos || []).find((x) => x.id === b.dataset.vis);
+        if (!meta?.storagePath) return toast('Arquivo não encontrado no servidor.', 'err');
+        try {
+          const url = await DB.obterArquivoUrl(meta.storagePath);
+          window.open(url, '_blank', 'noopener');
+        } catch (err) { toast('Erro ao abrir arquivo: ' + err.message, 'err'); }
+      }));
     wrap.querySelectorAll('[data-ver]').forEach((b) =>
       b.addEventListener('click', async () => {
         const meta = (doc.arquivos || []).find((x) => x.id === b.dataset.ver);
