@@ -325,13 +325,20 @@
       <div class="lic-right">
         <span class="badge ${st}">${STATUS_LABEL[st]}</span>
         <span class="lic-prazo muted">${textoPrazo(l)}</span>
+        <button class="btn btn-sm" data-edit="${l.id}" style="margin-top:6px;align-self:flex-end">✏️ Editar</button>
       </div>
     </div>`;
   }
 
   function ligarCardsLicenca() {
-    main.querySelectorAll('.lic-card').forEach((c) =>
+    main.querySelectorAll('.lic-card[data-id]').forEach((c) =>
       c.addEventListener('click', () => abrirDetalhe(c.dataset.id)));
+    main.querySelectorAll('[data-edit]').forEach((b) =>
+      b.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const l = await DB.obterLicenca(b.dataset.edit);
+        if (l) abrirFormulario(l);
+      }));
   }
 
   // ---------------- Modal ----------------
