@@ -1054,6 +1054,17 @@
         <ul class="hist-list" id="hist-list-manut"></ul>
       </div>
 
+      <div class="detail-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h3 style="margin:0">Laudos e Documentos</h3>
+        </div>
+        <div id="file-list-manut"></div>
+        <div class="dropzone" id="dropzone-manut" style="margin-top:10px">
+          <span>📎 Clique ou arraste arquivos aqui para anexar laudos</span>
+          <input type="file" id="file-input-manut" multiple hidden>
+        </div>
+      </div>
+
       <div class="divider"></div>
       <div class="form-actions" style="justify-content:space-between">
         <button class="btn btn-danger" id="del-manut">🗑️ Excluir</button>
@@ -1071,6 +1082,17 @@
         <div class="ht">${new Date(it.data).toLocaleString('pt-BR')}</div>
       </li>`).join('') || '<li class="muted" style="font-size:14px">Sem registros.</li>';
 
+    renderArquivosManutencao(m);
+    const dz = document.getElementById('dropzone-manut');
+    const fi = document.getElementById('file-input-manut');
+    if (dz && fi) {
+      dz.addEventListener('click', () => fi.click());
+      fi.addEventListener('change', () => receberArquivosManutencao(m, fi.files));
+      dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag'); });
+      dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+      dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('drag'); receberArquivosManutencao(m, e.dataTransfer.files); });
+    }
+
     document.getElementById('edit-manut').addEventListener('click', () => abrirFormManutencao(m));
     document.getElementById('del-manut').addEventListener('click', async () => {
       if (!confirm(`Excluir "${m.nome}"? Esta ação não pode ser desfeita.`)) return;
@@ -1081,6 +1103,72 @@
       toast('Manutenção excluída.', '');
     });
     document.getElementById('registrar-manut').addEventListener('click', () => abrirRegistroManutencao(m));
+  }
+
+  function renderArquivosManutencao(m) {
+    const wrap = document.getElementById('file-list-manut');
+    if (!wrap) return;
+    const arqs = m.arquivos || [];
+    wrap.innerHTML = arqs.map((a) => `
+      <div class="file-row">
+        <span class="fi">${iconeArquivo(a.tipo, a.nome)}</span>
+        <span class="fn" title="${esc(a.nome)}">${esc(a.nome)}</span>
+        <span class="fs">${fmtTamanho(a.tamanho || 0)}</span>
+        <button class="icon-btn btn-sm" data-vis="${a.id}" title="Visualizar" style="font-size:15px">👁️</button>
+        <button class="icon-btn btn-sm" data-ver="${a.id}" title="Baixar" style="font-size:15px">⬇️</button>
+        <button class="icon-btn btn-sm" data-rem="${a.id}" title="Remover" style="font-size:15px">🗑️</button>
+      </div>`).join('') || '<p class="muted" style="font-size:14px">Nenhum arquivo anexado.</p>';
+
+    wrap.querySelectorAll('[data-vis]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const meta = (m.arquivos || []).find((x) => x.id === b.dataset.vis);
+        if (!meta?.storagePath) return toast('Arquivo não encontrado no servidor.', 'err');
+        try { window.open(await DB.obterArquivoUrl(meta.storagePath), '_blank', 'noopener'); }
+        catch (err) { toast('Erro ao abrir arquivo: ' + err.message, 'err'); }
+      }));
+    wrap.querySelectorAll('[data-ver]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const meta = (m.arquivos || []).find((x) => x.id === b.dataset.ver);
+        if (!meta?.storagePath) return toast('Arquivo não encontrado no servidor.', 'err');
+        try {
+          const url = await DB.obterArquivoUrl(meta.storagePath);
+          const a = document.createElement('a');
+          a.href = url; a.download = meta.nome; a.target = '_blank';
+          document.body.appendChild(a); a.click(); a.remove();
+        } catch (err) { toast('Erro ao baixar arquivo: ' + err.message, 'err'); }
+      }));
+    wrap.querySelectorAll('[data-rem]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        if (!confirm('Remover este arquivo?')) return;
+        const meta = (m.arquivos || []).find((x) => x.id === b.dataset.rem);
+        if (meta?.storagePath) await DB.removerArquivo(meta.storagePath);
+        m.arquivos = (m.arquivos || []).filter((x) => x.id !== b.dataset.rem);
+        m.atualizadoEm = new Date().toISOString();
+        await DB.salvarManutencao(m);
+        await carregar();
+        renderArquivosManutencao(m);
+      }));
+  }
+
+  async function receberArquivosManutencao(m, fileList) {
+    const arquivos = Array.from(fileList);
+    if (!arquivos.length) return;
+    m.arquivos = m.arquivos || [];
+    let ok = 0;
+    for (const file of arquivos) {
+      if (file.size > 50 * 1048576) { toast(`"${file.name}" é maior que 50 MB e foi ignorado.`, 'err'); continue; }
+      try {
+        const aid = uid();
+        const storagePath = await DB.salvarArquivo(aid, `manutencoes/${m.id}`, file);
+        m.arquivos.push({ id: aid, nome: file.name, tipo: file.type, tamanho: file.size, storagePath, adicionadoEm: new Date().toISOString() });
+        ok++;
+      } catch (err) { toast(`Erro ao enviar "${file.name}": ${err.message}`, 'err'); }
+    }
+    m.atualizadoEm = new Date().toISOString();
+    await DB.salvarManutencao(m);
+    await carregar();
+    renderArquivosManutencao(m);
+    if (ok) toast(`${ok} arquivo(s) enviado(s).`, 'ok');
   }
 
   function abrirRegistroManutencao(m) {
